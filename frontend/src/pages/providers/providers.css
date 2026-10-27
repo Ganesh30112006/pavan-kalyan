@@ -1,0 +1,162 @@
+.setup-steps {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.code-block {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  overflow-x: auto;
+  background: var(--color-surface-muted);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  white-space: pre;
+}
+
+/* Commands wrap instead of scrolling, so the whole command is visible and the block needs no keyboard scrolling. */
+.code-block--wrap {
+  overflow-x: visible;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Links in running text are underlined, not told apart by colour alone (WCAG 1.4.1). */
+.setup-steps a:not(.button) {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+/* Flags such as --dry-run must not break at their hyphens. */
+.setup-steps .field__hint code {
+  white-space: nowrap;
+}
+
+.setup-subheading {
+  font-size: var(--font-size-lg);
+}
+
+/* Provider panels on the Cloud providers page */
+.provider-panel__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.provider-panel__header h2 {
+  font-size: var(--font-size-lg);
+}
+
+.provider-panel > .alert {
+  margin: var(--space-3) var(--space-4) 0;
+}
+
+.provider-panel__body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+}
+
+.provider-panel__body > :first-child {
+  padding: var(--space-4);
+}
+
+.provider-panel__aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-left: var(--border-width) solid var(--color-border);
+  background: var(--color-surface-muted);
+}
+
+.provider-panel__details summary {
+  color: var(--color-accent);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.provider-panel__details[open] summary {
+  margin-bottom: var(--space-2);
+}
+
+.capability-list {
+  grid-template-columns: minmax(7rem, 9rem) 1fr;
+  font-size: var(--font-size-sm);
+}
+
+.permission-list {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* AWS policy and action names are long single words; let them wrap instead of widening the page. */
+.permission-list code {
+  overflow-wrap: anywhere;
+}
+
+.connection-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.connection-list__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.connection-list__item + .connection-list__item {
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.connection-list__main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.connection-list__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.connection-list__facts dt {
+  color: var(--color-text-muted);
+}
+
+.connection-list__facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 56rem) {
+  .provider-panel__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .provider-panel__aside {
+    border-left: 0;
+    border-top: var(--border-width) solid var(--color-border);
+  }
+}

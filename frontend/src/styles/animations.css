@@ -1,0 +1,68 @@
+/* The only animations in the app. Each one shows that work is in progress. */
+@keyframes cb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes cb-shimmer {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: calc(200px + 100%) 0;
+  }
+}
+
+@keyframes cb-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+@keyframes cb-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.spinner {
+  display: inline-block;
+  flex: none;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: cb-spin 0.8s linear infinite;
+  opacity: 0.85;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* No rotation: a static partial ring still reads as "busy", with the text label. */
+  .spinner {
+    animation: none;
+    border-right-color: currentColor;
+    border-style: dotted;
+  }
+
+  .skeleton {
+    animation: none !important;
+  }
+
+  .progress-bar__fill--indeterminate {
+    animation: none !important;
+    width: 100% !important;
+    opacity: 0.35;
+  }
+
+  * {
+    scroll-behavior: auto !important;
+  }
+}

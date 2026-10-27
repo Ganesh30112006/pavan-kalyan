@@ -1,0 +1,109 @@
+/* Design tokens. Every colour, size and duration in the app comes from here. */
+:root {
+  /* Colour */
+  --color-bg: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f1f3f5;
+  --color-surface-hover: #eef1f4;
+  --color-border: #dde1e6;
+  --color-border-strong: #c3c9d1;
+  --color-text: #1d2329;
+  --color-text-muted: #56606b;
+  --color-text-subtle: #6b7580;
+  --color-text-inverse: #ffffff;
+
+  --color-accent: #0a5bd3;
+  --color-accent-hover: #084aad;
+  --color-accent-subtle: #e8f0fc;
+  --color-accent-border: #a9c6f2;
+
+  --color-success: #1a7f37;
+  --color-success-subtle: #e9f6ec;
+  --color-success-border: #a7d8b4;
+  --color-warning: #8a5a00;
+  --color-warning-subtle: #fdf5e1;
+  --color-warning-border: #ecd08c;
+  --color-danger: #c4222d;
+  --color-danger-hover: #a51d26;
+  --color-danger-subtle: #fcecec;
+  --color-danger-border: #f0b4b8;
+  --color-neutral: #56606b;
+  --color-neutral-subtle: #eef0f2;
+  --color-neutral-border: #cfd5db;
+
+  --color-demo: #6a3fb5;
+  --color-demo-subtle: #f2edfb;
+
+  /* Chart series (validated with the dataviz palette checker, incl. colour-vision deficiency) */
+  --chart-succeeded: #0a5bd3;
+  --chart-failed: #c4222d;
+  --chart-grid: #e6e9ed;
+
+  --color-overlay: rgb(16 22 28 / 45%);
+  --color-skeleton: #e6e9ed;
+  --color-skeleton-highlight: #f1f3f5;
+
+  /* Typography */
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.8125rem;
+  --font-size-md: 0.875rem;
+  --font-size-lg: 1rem;
+  --font-size-xl: 1.25rem;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --line-height-tight: 1.3;
+  --line-height-normal: 1.5;
+
+  /* Spacing (4 px scale) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+
+  /* Borders and elevation */
+  --border-width: 1px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --shadow-sm: 0 1px 2px rgb(16 22 28 / 6%);
+  --shadow-md: 0 4px 16px rgb(16 22 28 / 12%);
+
+  /* Focus */
+  --focus-ring-color: #0a5bd3;
+  --focus-ring: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--focus-ring-color);
+
+  /* Layout */
+  --header-height: 3.25rem;
+  --sidebar-width: 14.5rem;
+  --sidebar-collapsed-width: 3.75rem;
+  --content-max-width: 80rem;
+  --control-height: 2.25rem;
+  --control-height-sm: 1.875rem;
+
+  /* Motion */
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 1200ms;
+  --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  --z-header: 20;
+  --z-sidebar: 30;
+  --z-overlay: 40;
+  --z-dialog: 50;
+  --z-toast: 60;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+  }
+}

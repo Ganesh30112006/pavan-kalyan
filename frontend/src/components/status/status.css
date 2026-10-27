@@ -1,0 +1,295 @@
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0.0625rem var(--space-2);
+  border: var(--border-width) solid;
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.status-badge .spinner {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-width: 1.5px;
+}
+
+.status-badge--success {
+  color: var(--color-success);
+  background: var(--color-success-subtle);
+  border-color: var(--color-success-border);
+}
+.status-badge--warning {
+  color: var(--color-warning);
+  background: var(--color-warning-subtle);
+  border-color: var(--color-warning-border);
+}
+.status-badge--danger {
+  color: var(--color-danger);
+  background: var(--color-danger-subtle);
+  border-color: var(--color-danger-border);
+}
+.status-badge--info {
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  border-color: var(--color-accent-border);
+}
+.status-badge--neutral {
+  color: var(--color-neutral);
+  background: var(--color-neutral-subtle);
+  border-color: var(--color-neutral-border);
+}
+
+.inline-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.inline-status--warning {
+  color: var(--color-warning);
+}
+
+.inline-status--danger {
+  color: var(--color-danger);
+}
+
+/* Horizontal steps (provider connection) */
+.steps {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  gap: var(--space-2);
+}
+
+.steps__item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.steps__bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-neutral-subtle);
+  overflow: hidden;
+}
+
+.steps__item--done .steps__bar {
+  background: var(--color-success);
+}
+.steps__item--failed .steps__bar {
+  background: var(--color-danger);
+}
+.steps__item--active .steps__bar {
+  background: var(--color-accent-subtle);
+}
+.steps__item--active .steps__bar::after {
+  content: '';
+  display: block;
+  width: 33%;
+  height: 100%;
+  background: var(--color-accent);
+  animation: cb-indeterminate var(--duration-slow) ease-in-out infinite;
+}
+
+.steps__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.steps__item--active .steps__label,
+.steps__item--done .steps__label,
+.steps__item--failed .steps__label {
+  color: var(--color-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .steps__item--active .steps__bar::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
+
+@media (max-width: 40rem) {
+  .steps {
+    flex-direction: column;
+  }
+}
+
+/* Vertical stage list (deployment) */
+.stage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.stage-list__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.5rem 1fr auto;
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-2) 0;
+}
+
+.stage-list__item:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 0.6875rem;
+  top: 2rem;
+  bottom: -0.25rem;
+  width: 2px;
+  background: var(--color-border);
+}
+
+.stage-list__item--succeeded:not(:last-child)::before {
+  background: var(--color-success-border);
+}
+
+.stage-list__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  border: 2px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text-subtle);
+}
+
+.stage-list__item--succeeded .stage-list__icon {
+  border-color: var(--color-success);
+  background: var(--color-success);
+  color: var(--color-text-inverse);
+}
+.stage-list__item--active .stage-list__icon {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.stage-list__item--failed .stage-list__icon {
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: var(--color-text-inverse);
+}
+.stage-list__item--cancelled .stage-list__icon {
+  border-color: var(--color-warning);
+  color: var(--color-warning);
+}
+.stage-list__item--skipped .stage-list__icon {
+  border-style: dashed;
+}
+
+.stage-list__item--skipped .stage-list__name,
+.stage-list__item--pending .stage-list__name {
+  color: var(--color-text-muted);
+}
+
+.stage-list__item--active .stage-list__name {
+  font-weight: var(--font-weight-semibold);
+}
+
+.stage-list__icon .spinner {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.stage-list__meta {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.check-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.check-list__item {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.check-list__item svg {
+  flex: none;
+  margin-top: 0.15rem;
+}
+
+.check-list__item--passed svg {
+  color: var(--color-success);
+}
+.check-list__item--failed svg {
+  color: var(--color-danger);
+}
+.check-list__item--pending svg,
+.check-list__item--skipped svg,
+.check-list__item--unknown svg {
+  color: var(--color-text-subtle);
+}
+
+.inline-status--success {
+  color: var(--color-success);
+}
+
+/* Logs */
+.log-viewer {
+  max-height: 28rem;
+  overflow: auto;
+  margin: 0;
+  padding: var(--space-2) 0;
+  list-style: none;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.log-viewer__line {
+  display: grid;
+  grid-template-columns: max-content 4.5rem minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: 1px var(--space-3);
+}
+
+.log-viewer__time,
+.log-viewer__stream {
+  color: var(--color-text-subtle);
+  white-space: nowrap;
+}
+
+.log-viewer__message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.log-viewer__line--stderr .log-viewer__message,
+.log-viewer__line--stderr .log-viewer__stream {
+  color: var(--color-danger);
+}
+
+@media (max-width: 40rem) {
+  .log-viewer__line {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    padding: var(--space-1) var(--space-3);
+  }
+}

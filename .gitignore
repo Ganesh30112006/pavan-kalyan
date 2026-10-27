@@ -1,0 +1,10 @@
+node_modules
+.DS_Store
+*.log
+.env
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+__pycache__/
+.claude/settings.local.json
+.playwright-mcp/

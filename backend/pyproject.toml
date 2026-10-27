@@ -1,0 +1,74 @@
+[project]
+name = "cloudbridge-backend"
+version = "0.1.0"
+description = "CloudBridge API: deploy containerized applications to AWS App Runner and Google Cloud Run"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.143,<1",
+  "uvicorn[standard]>=0.54,<1",
+  "sqlalchemy>=2.1,<2.2",
+  "alembic>=1.20,<2",
+  "pydantic>=2.14,<3",
+  "pydantic-settings>=2.15,<3",
+  "boto3[crt]>=1.43,<2",
+  "google-auth>=2.62,<3",
+  "requests>=2.34,<3",
+  "httpx>=0.28,<1",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.3,<4"]
+dev = [
+  "pytest>=9.1,<10",
+  "httpx2>=2.13,<3",
+  "pyyaml>=6,<7",
+  "ruff>=0.17,<1",
+  "mypy>=2.4,<3",
+  "boto3-stubs[sts,apprunner,ecr,codebuild,logs]>=1.43,<2",
+  "types-requests>=2.33",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["error::DeprecationWarning:app.*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [".venv", "migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "BLE", "UP", "S", "SIM", "RUF"]
+ignore = [
+  "S101",   # assert is used in tests
+  "S311",   # random is not used for security
+  "B008",   # FastAPI dependencies are declared in defaults
+  "S105",   # false positives on names containing "token"
+  "S106",
+  "RUF001", # user-facing copy uses typographic dashes, matching the frontend
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S108", "E501", "RUF028"]
+"app/providers/aws.py" = ["E501"]  # the CodeBuild buildspec keeps each shell command on one line
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]
+exclude = ["^migrations/", "^\\.venv/"]
+
+[[tool.mypy.overrides]]
+module = ["google.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# google-auth's credential classes are not annotated.
+module = ["app.providers.gcp"]
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false

@@ -1,0 +1,61 @@
+name: Deploy with CloudBridge
+description: Deploy, promote or configure a CloudBridge application from a GitHub workflow.
+branding:
+  icon: upload-cloud
+  color: blue
+inputs:
+  url:
+    description: CloudBridge address, e.g. https://cloudbridge.example.com
+    required: true
+  token:
+    description: A CloudBridge API token (store it as a repository secret).
+    required: true
+  application:
+    description: Application name or ID.
+    required: true
+  command:
+    description: deploy, promote or apply.
+    required: false
+    default: deploy
+  config-file:
+    description: For apply, the cloudbridge.yaml to apply.
+    required: false
+    default: cloudbridge.yaml
+  wait:
+    description: Follow the deployment and fail the step if it fails.
+    required: false
+    default: "true"
+  timeout-minutes:
+    description: How long to wait for the deployment.
+    required: false
+    default: "60"
+runs:
+  using: composite
+  steps:
+    - name: CloudBridge ${{ inputs.command }}
+      shell: bash
+      env:
+        CLOUDBRIDGE_URL: ${{ inputs.url }}
+        CLOUDBRIDGE_TOKEN: ${{ inputs.token }}
+        CB_APP: ${{ inputs.application }}
+        CB_COMMAND: ${{ inputs.command }}
+        CB_FILE: ${{ inputs.config-file }}
+        CB_WAIT: ${{ inputs.wait }}
+        CB_TIMEOUT: ${{ inputs.timeout-minutes }}
+      run: |
+        set -euo pipefail
+        cli="${GITHUB_ACTION_PATH}/cloudbridge.py"
+        case "$CB_COMMAND" in
+          deploy|promote)
+            args=("$CB_COMMAND" "$CB_APP" --timeout "$CB_TIMEOUT")
+            if [ "$CB_WAIT" = "true" ]; then args+=(--wait); fi
+            python3 "$cli" "${args[@]}"
+            ;;
+          apply)
+            python3 "$cli" apply "$CB_APP" "$CB_FILE"
+            ;;
+          *)
+            echo "Unknown command: $CB_COMMAND (use deploy, promote or apply)" >&2
+            exit 2
+            ;;
+        esac

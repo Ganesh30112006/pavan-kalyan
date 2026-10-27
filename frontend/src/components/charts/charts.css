@@ -1,0 +1,131 @@
+.trend-chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.trend-chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.trend-chart__key {
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
+
+.trend-chart__legend .trend-chart__key--failed {
+  margin-left: var(--space-2);
+}
+
+.trend-chart__key--succeeded {
+  background: var(--chart-succeeded);
+}
+
+.trend-chart__key--failed {
+  background: var(--chart-failed);
+}
+
+.trend-chart__plot {
+  position: relative;
+  padding-left: var(--space-6);
+}
+
+.trend-chart__plot svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 10rem;
+}
+
+.trend-chart__max {
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+  line-height: 1;
+}
+
+.trend-chart__grid {
+  stroke: var(--chart-grid);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.trend-chart__baseline {
+  stroke: var(--color-border-strong);
+  stroke-width: 1;
+}
+
+.trend-chart__hit {
+  fill: transparent;
+}
+
+.trend-chart__succeeded {
+  fill: var(--chart-succeeded);
+}
+
+.trend-chart__failed {
+  fill: var(--chart-failed);
+}
+
+.trend-chart__bar--hover .trend-chart__hit {
+  fill: var(--color-surface-hover);
+}
+
+.trend-chart__tooltip {
+  position: absolute;
+  bottom: calc(100% - var(--space-2));
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.trend-chart__axis {
+  display: flex;
+  justify-content: space-between;
+  padding-left: var(--space-6);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+}
+
+.trend-chart__table summary {
+  color: var(--color-accent);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.trend-chart__table table {
+  margin-top: var(--space-2);
+}
+
+@media (forced-colors: active) {
+  .trend-chart__succeeded {
+    fill: CanvasText;
+  }
+
+  .trend-chart__failed {
+    fill: Mark;
+  }
+}

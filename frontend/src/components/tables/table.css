@@ -1,0 +1,169 @@
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table-scroll:focus-visible {
+  border-radius: 0;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-md);
+}
+
+.data-table th {
+  padding: var(--space-2) var(--space-4);
+  text-align: left;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  border-bottom: var(--border-width) solid var(--color-border);
+  white-space: nowrap;
+}
+
+.data-table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-width) solid var(--color-border);
+  vertical-align: middle;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.data-table tbody tr:hover {
+  background: var(--color-surface-muted);
+}
+
+.data-table[aria-busy='true'] tbody {
+  opacity: 0.7;
+}
+
+.data-table__primary {
+  font-weight: var(--font-weight-medium);
+}
+
+.data-table__secondary {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.data-table__nowrap {
+  white-space: nowrap;
+}
+
+.data-table__actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Narrow screens: each row becomes a labelled block, no sideways scrolling needed. */
+@media (max-width: 40rem) {
+  .data-table--stack thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .data-table--stack tr {
+    display: block;
+    padding: var(--space-2) 0;
+    border-bottom: var(--border-width) solid var(--color-border);
+  }
+
+  .data-table--stack tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .data-table--stack td {
+    display: grid;
+    grid-template-columns: 7.5rem 1fr;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-4);
+    border: 0;
+  }
+
+  .data-table--stack td > * {
+    justify-self: start;
+    min-width: 0;
+  }
+
+  .data-table--stack td::before {
+    content: attr(data-label);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+  }
+
+  .data-table--stack td.data-table__actions {
+    text-align: left;
+  }
+
+  .data-table--stack td[data-label='']::before {
+    content: none;
+  }
+
+  .data-table--stack td[data-label=''] {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--border-width) solid var(--color-border);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.pagination__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pagination select {
+  width: auto;
+  min-height: var(--control-height-sm);
+  padding: 0 var(--space-2);
+}
+
+.data-table__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: calc(-1 * var(--space-1));
+  padding: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.data-table__sort svg {
+  color: var(--color-text-subtle);
+}
+
+.data-table__sort:hover {
+  color: var(--color-text);
+}
+
+.data-table__sort--active svg {
+  color: var(--color-accent);
+}
+
+.data-table__sort:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
