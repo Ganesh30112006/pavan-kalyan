@@ -238,6 +238,7 @@ describe('provider setup', () => {
           federation_issuer: 'https://abc.tokens.sts.global.api.aws',
           federation_audience: 'api://AzureADTokenExchange',
           aws: null,
+          cloudformation_template_url: null,
         },
       }),
     );

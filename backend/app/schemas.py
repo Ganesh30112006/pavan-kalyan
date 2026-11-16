@@ -162,6 +162,8 @@ class ConnectionSetupOut(Out):
     """Azure: the issuer the customer's federated credential must trust (trusted_principal is its subject)."""
     federation_audience: str | None = None
     aws: AwsSetupOut | None = None
+    cloudformation_template_url: str | None = None
+    """AWS: the operator's CloudFormation template for this provider, for a "Launch Stack" link (null if none)."""
 
 
 class ConnectionConfigOut(Out):

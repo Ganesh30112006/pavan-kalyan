@@ -304,7 +304,10 @@ ProviderConnection = { id, name, provider, default_region, created_at, last_vali
 ConnectionSetup = { external_id|null, trusted_principal|null, federation_issuer|null, federation_audience|null,
   // AWS only: the names CloudBridge uses in the account, which the setup script creates
   aws: { ecr_repository_prefix, apprunner_access_role, apprunner_instance_role, codebuild_role,
-         ecs_execution_role, ecs_infrastructure_role } | null }
+         ecs_execution_role, ecs_infrastructure_role } | null,
+  // AWS only: S3 URL of the operator's CloudFormation template (CLOUDBRIDGE_AWS_[ECS_]CLOUDFORMATION_TEMPLATE_URL),
+  // for a "Launch Stack" link; null when not configured. Absent in older responses = null.
+  cloudformation_template_url: string|null }
 ```
 
 No long-lived cloud credentials are accepted: AWS uses `sts:AssumeRole` with a

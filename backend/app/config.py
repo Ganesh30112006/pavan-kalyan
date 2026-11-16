@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from functools import cached_property
 from typing import Literal
 
@@ -11,6 +12,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_AWS_REGIONS = (
     "us-east-1,us-east-2,us-west-2,ca-central-1,eu-central-1,eu-west-1,eu-west-2,eu-west-3,"
     "ap-south-1,ap-southeast-1,ap-southeast-2,ap-northeast-1"
+)
+# Virtual-hosted (bucket.s3.region.amazonaws.com/key) or path style (s3.region.amazonaws.com/bucket/key).
+S3_TEMPLATE_URL = re.compile(
+    r"https://(?:[a-z0-9][a-z0-9.-]*\.)?s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com(?:\.cn)?/[^\s?#]+"
 )
 DEFAULT_AZURE_REGIONS = (
     "eastus,eastus2,westus2,westus3,centralus,canadacentral,northeurope,westeurope,uksouth,francecentral,"
@@ -70,6 +75,10 @@ class Settings(BaseSettings):
     aws_ecr_repository_prefix: str = "cloudbridge"
     aws_ecs_execution_role_name: str = "CloudBridgeECSExecution"
     aws_ecs_infrastructure_role_name: str = "CloudBridgeECSInfrastructure"
+    aws_cloudformation_template_url: str | None = None
+    """S3 URL of `cloudbridge-connect.py cloudformation` output; enables the "Launch Stack" link for App Runner."""
+    aws_ecs_cloudformation_template_url: str | None = None
+    """The same for ECS Express (`cloudbridge-connect.py cloudformation --ecs`)."""
 
     # Kubernetes. AKS clusters are reached with a Microsoft Entra token for the connection's app registration
     # (the same federated identity as Azure); other clusters can trust CloudBridge's OIDC token directly.
@@ -128,6 +137,13 @@ class Settings(BaseSettings):
             raise ValueError("CLOUDBRIDGE_AZURE_TOKEN_FILE is required when the Azure token source is 'file'.")
         if self.gcp_subject_token_source == "file" and not self.gcp_subject_token_file:
             raise ValueError("CLOUDBRIDGE_GCP_SUBJECT_TOKEN_FILE is required when the subject token source is 'file'.")
+        for name in ("aws_cloudformation_template_url", "aws_ecs_cloudformation_template_url"):
+            url = getattr(self, name)
+            if url is not None and not S3_TEMPLATE_URL.fullmatch(url):
+                raise ValueError(
+                    f"CLOUDBRIDGE_{name.upper()} must be an https:// Amazon S3 object URL "
+                    "(CloudFormation only opens templates from S3)."
+                )
         return self
 
     @cached_property

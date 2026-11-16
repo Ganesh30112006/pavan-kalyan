@@ -111,6 +111,8 @@ export interface ConnectionSetup {
   federation_audience: string | null;
   /** AWS: the names CloudBridge uses in the account (the setup script creates these roles). */
   aws: AwsSetup | null;
+  /** AWS: S3 URL of the operator's CloudFormation template, for a "Launch Stack" link (null when not offered). */
+  cloudformation_template_url: string | null;
 }
 
 export interface AwsSetup {

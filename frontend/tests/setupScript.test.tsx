@@ -4,6 +4,7 @@ import {
   connectionCommand,
   defaultRoleArn,
   downloadAndRun,
+  launchStackUrl,
   newConnectionCommand,
   shellArg,
   type NewConnectionValues,
@@ -21,6 +22,7 @@ const FEDERATED: ConnectionSetup = {
   federation_issuer: ISSUER,
   federation_audience: 'api://AzureADTokenExchange',
   aws: null,
+  cloudformation_template_url: null,
 };
 
 function azureConnection(overrides: Partial<ProviderConnection> = {}): ProviderConnection {
@@ -167,6 +169,42 @@ describe('setup script on the provider pages', () => {
     expect(api.providers.validate).toHaveBeenCalledTimes(1);
     expect(await screen.findByText('Validating connection', { selector: '.alert__title' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Validate now' })).toBeDisabled();
+  });
+
+  it('offers a Launch Stack link with the connection’s values when CloudBridge has a template', async () => {
+    const template = 'https://cb-templates.s3.ap-south-1.amazonaws.com/apprunner.json';
+    const base = makeConnection({ status: 'pending_validation', last_validated_at: null, default_region: 'ap-south-1' });
+    const withTemplate = makeConnection({ ...base, setup: { ...base.setup!, cloudformation_template_url: template } });
+
+    const url = new URL(launchStackUrl(withTemplate)!);
+    expect(`${url.origin}${url.pathname}${url.search}`).toBe('https://console.aws.amazon.com/cloudformation/home?region=ap-south-1');
+    const [route, query] = url.hash.split('?');
+    expect(route).toBe('#/stacks/quickcreate');
+    expect(Object.fromEntries(new URLSearchParams(query))).toEqual({
+      templateURL: template,
+      stackName: 'CloudBridge-CloudBridge',
+      param_CloudBridgePrincipal: 'arn:aws:iam::999999999999:role/cloudbridge',
+      param_ExternalId: 'ext-123',
+      param_RoleName: 'CloudBridge',
+    });
+    // Not offered without a template, for a role under a path, or outside the standard partition.
+    expect(launchStackUrl(base)).toBeNull();
+    expect(launchStackUrl(makeConnection({ ...withTemplate, config: { ...base.config, role_arn: 'arn:aws:iam::123456789012:role/team/CloudBridge' } }))).toBeNull();
+    expect(launchStackUrl(makeConnection({ ...withTemplate, config: { ...base.config, role_arn: 'arn:aws-cn:iam::123456789012:role/CloudBridge' } }))).toBeNull();
+
+    const api = createFakeApi();
+    api.providers.get.mockResolvedValue(withTemplate);
+    const { unmount } = renderApp('/providers/conn-1', api);
+    const link = await screen.findByRole('link', { name: 'the prepared CloudBridge stack' });
+    expect(link).toHaveAttribute('href', launchStackUrl(withTemplate));
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(screen.getByRole('heading', { name: 'Or with the setup script' })).toBeInTheDocument();
+    unmount();
+
+    api.providers.get.mockResolvedValue(base);
+    renderApp('/providers/conn-1', api);
+    expect(await screen.findByRole('heading', { name: 'With the setup script' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'the prepared CloudBridge stack' })).not.toBeInTheDocument();
   });
 
   it('suggests a role ARN only for a complete account ID, and quotes the download URL when needed', () => {

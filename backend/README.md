@@ -79,6 +79,7 @@ All settings are `CLOUDBRIDGE_*` environment variables (see `app/config.py` and 
 | `AZURE_TOKEN_SOURCE` | `none` | `aws` (`sts:GetWebIdentityToken`) or `file` (OIDC token file, `AZURE_TOKEN_FILE`) |
 | `AZURE_FEDERATION_ISSUER` / `AZURE_FEDERATION_SUBJECT` | empty | Shown to users as the issuer and subject their federated credential must trust |
 | `AWS_ECS_EXECUTION_ROLE_NAME` / `AWS_ECS_INFRASTRUCTURE_ROLE_NAME` | `CloudBridgeECSExecution` / `CloudBridgeECSInfrastructure` | Roles ECS Express services use in customer accounts |
+| `AWS_CLOUDFORMATION_TEMPLATE_URL` / `AWS_ECS_CLOUDFORMATION_TEMPLATE_URL` | empty | S3 URL of the CloudFormation template (see below); enables the "Launch Stack" link for App Runner / ECS Express |
 | `KUBERNETES_AKS_SCOPE` | AKS server app | Entra scope requested for AKS clusters |
 | `ALLOW_PRIVATE_ALERT_URLS` | `false` | Development only (refused in production): allow alert webhooks on private addresses |
 | `PUBLIC_URL` | empty | Links in e-mails and alerts |
@@ -152,6 +153,24 @@ CloudBridge's own identity (next section) is still set up once by whoever runs C
 
 Role names can be changed with `CLOUDBRIDGE_AWS_APPRUNNER_ACCESS_ROLE_NAME`,
 `…_INSTANCE_ROLE_NAME`, `CLOUDBRIDGE_AWS_CODEBUILD_ROLE_NAME` and the `…_ECS_…_ROLE_NAME` settings.
+
+**One-click setup ("Launch Stack").** The setup script can print the same roles and policies as a
+CloudFormation template; the connection page then offers a link that opens the AWS console with every
+value filled in, so customers need no shell at all. Generate it with the role names you configured,
+upload it to S3 where your customers' consoles can read it (a public-read object, or a bucket policy that
+allows `s3:GetObject`), and set the URL:
+
+```bash
+python3 frontend/public/cloudbridge-connect.py cloudformation > cloudbridge-apprunner.json
+python3 frontend/public/cloudbridge-connect.py cloudformation --ecs > cloudbridge-ecs.json
+# add --codebuild-role NAME etc. when you changed role names
+CLOUDBRIDGE_AWS_CLOUDFORMATION_TEMPLATE_URL=https://<bucket>.s3.<region>.amazonaws.com/cloudbridge-apprunner.json
+CLOUDBRIDGE_AWS_ECS_CLOUDFORMATION_TEMPLATE_URL=https://<bucket>.s3.<region>.amazonaws.com/cloudbridge-ecs.json
+```
+
+Regenerate and re-upload the templates whenever the script's policy changes (a test keeps the template
+and the script identical). The stack fails if the roles already exist; customers then use the script,
+which updates existing roles.
 
 ### In each customer Google Cloud project
 

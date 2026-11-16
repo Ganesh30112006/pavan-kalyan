@@ -10,6 +10,7 @@ end it prints the values to enter in CloudBridge.
     python3 cloudbridge-connect.py azure --help       Azure Container Apps
     python3 cloudbridge-connect.py aks --help         Azure Kubernetes Service
     python3 cloudbridge-connect.py kubernetes --help  any other cluster (OIDC)
+    python3 cloudbridge-connect.py cloudformation     the AWS setup as a CloudFormation template (operators)
 
 CloudBridge's connection page shows the full command with your values filled in.
 Add --dry-run to see every step without changing anything.
@@ -446,6 +447,154 @@ def codebuild_policy(partition: str, account: str, ecr_prefix: str) -> dict[str,
     }
 
 
+class ServiceRole:
+    """A helper role an AWS service uses on CloudBridge's behalf. `key` names it in AWS_DEFAULT_ROLES."""
+
+    def __init__(
+        self,
+        key: str,
+        service: str,
+        purpose: str,
+        managed: str | None = None,
+        inline: dict[str, Any] | None = None,
+        optional: bool = False,
+    ) -> None:
+        self.key = key
+        self.service = service
+        self.purpose = purpose
+        self.managed = managed  # an AWS managed policy; all of these live under /service-role/
+        self.inline = inline
+        self.optional = optional
+
+
+def service_roles(mode: str, partition: str, account: str, roles: dict[str, str], ecr_prefix: str) -> list[ServiceRole]:
+    """The helper roles the setup script and the CloudFormation template both create."""
+    if mode == "apprunner":
+        helpers = [
+            ServiceRole(
+                "apprunner_access_role",
+                "build.apprunner.amazonaws.com",
+                "App Runner uses it to pull private images from Amazon ECR.",
+                managed="AWSAppRunnerServicePolicyForECRAccess",
+            ),
+            ServiceRole(
+                "apprunner_instance_role",
+                "tasks.apprunner.amazonaws.com",
+                "Your running applications use it. It has no permissions until you let it read your secrets.",
+            ),
+        ]
+    else:
+        helpers = [
+            ServiceRole(
+                "ecs_execution_role",
+                "ecs-tasks.amazonaws.com",
+                "ECS uses it to pull images and write logs for your applications.",
+                managed="AmazonECSTaskExecutionRolePolicy",
+            ),
+            ServiceRole(
+                "ecs_infrastructure_role",
+                "ecs.amazonaws.com",
+                "ECS Express Mode uses it to create the load balancer and networking for each service.",
+                managed="AmazonECSInfrastructureRoleforExpressGatewayServices",
+            ),
+        ]
+    helpers.append(
+        ServiceRole(
+            "codebuild_role",
+            "codebuild.amazonaws.com",
+            "CodeBuild uses it to build images from your Git repositories (not needed for image sources).",
+            inline=codebuild_policy(partition, account, ecr_prefix),
+            optional=True,
+        )
+    )
+    return helpers
+
+
+def _sub(value: Any) -> Any:
+    """Wraps every string that uses ${...} in Fn::Sub, so CloudFormation fills in the account and parameters."""
+    if isinstance(value, str):
+        return {"Fn::Sub": value} if "${" in value else value
+    if isinstance(value, list):
+        return [_sub(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _sub(item) for key, item in value.items()}
+    return value
+
+
+def _logical_id(key: str) -> str:
+    return "".join(part.capitalize() for part in key.split("_")).replace("Apprunner", "AppRunner").replace("Ecs", "ECS")
+
+
+def cloudformation_template(mode: str, roles: dict[str, str], ecr_prefix: str) -> dict[str, Any]:
+    """The same roles and policies as `aws`, as a CloudFormation template for a "Launch Stack" link.
+
+    Built from the functions the script itself uses, with CloudFormation's account and partition in place of
+    real values, so the two can never grant different permissions."""
+    partition, account = "${AWS::Partition}", "${AWS::AccountId}"
+    tags = [{"Key": "managed-by", "Value": "cloudbridge"}]
+    label = "ECS Express Mode" if mode == "ecs" else "App Runner"
+    resources: dict[str, Any] = {
+        "ConnectionRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "RoleName": {"Ref": "RoleName"},
+                "Description": "Lets CloudBridge deploy applications (external ID required)",
+                "AssumeRolePolicyDocument": _sub(connection_trust("${CloudBridgePrincipal}", "${ExternalId}")),
+                "Policies": [
+                    {
+                        "PolicyName": "CloudBridge",
+                        "PolicyDocument": _sub(connection_policy(mode, partition, account, roles, ecr_prefix)),
+                    }
+                ],
+                "Tags": tags,
+            },
+        }
+    }
+    for helper in service_roles(mode, partition, account, roles, ecr_prefix):
+        properties: dict[str, Any] = {
+            "RoleName": roles[helper.key],
+            "Description": helper.purpose,
+            "AssumeRolePolicyDocument": trust(helper.service),
+            "Tags": tags,
+        }
+        if helper.managed:
+            properties["ManagedPolicyArns"] = [
+                {"Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/" + helper.managed}
+            ]
+        if helper.inline:
+            properties["Policies"] = [{"PolicyName": "CloudBridge", "PolicyDocument": _sub(helper.inline)}]
+        resources[_logical_id(helper.key)] = {"Type": "AWS::IAM::Role", "Properties": properties}
+    return {
+        "AWSTemplateFormatVersion": "2010-09-09",
+        "Description": f"CloudBridge: lets CloudBridge deploy to AWS {label} in this account. No access keys.",
+        "Parameters": {
+            "CloudBridgePrincipal": {
+                "Type": "String",
+                "Description": "CloudBridge's own AWS identity, from the connection page",
+                "AllowedPattern": r"arn:aws[a-z-]*:(iam|sts)::\d{12}:\S+",
+            },
+            "ExternalId": {
+                "Type": "String",
+                "Description": "The connection's external ID, from the connection page",
+                "AllowedPattern": r"[\w+=,.@:/-]{2,1224}",
+            },
+            "RoleName": {
+                "Type": "String",
+                "Default": "CloudBridgeDeploy",
+                "Description": "The role CloudBridge assumes (the end of the connection's role ARN)",
+                "AllowedPattern": r"[\w+=,.@-]{1,64}",
+            },
+        },
+        "Resources": resources,
+        "Outputs": {
+            "RoleArn": {
+                "Description": "The role CloudBridge assumes",
+                "Value": {"Fn::GetAtt": ["ConnectionRole", "Arn"]},
+            }
+        },
+    }
+
+
 class Aws:
     def __init__(self, runner: Runner) -> None:
         self.r = runner
@@ -626,48 +775,8 @@ def aws_plan(args: argparse.Namespace, runner: Runner) -> Plan:
         verb = "Update" if found else "Create"
         plan.add(Step(f"{verb} service role {role_name}", details, apply, optional=optional))
 
-    if mode == "apprunner":
-        service_role(
-            roles["apprunner_access_role"],
-            "build.apprunner.amazonaws.com",
-            "App Runner uses it to pull private images from Amazon ECR.",
-            "AWSAppRunnerServicePolicyForECRAccess",
-            None,
-            False,
-        )
-        service_role(
-            roles["apprunner_instance_role"],
-            "tasks.apprunner.amazonaws.com",
-            "Your running applications use it. It has no permissions until you let it read your secrets.",
-            None,
-            None,
-            False,
-        )
-    else:
-        service_role(
-            roles["ecs_execution_role"],
-            "ecs-tasks.amazonaws.com",
-            "ECS uses it to pull images and write logs for your applications.",
-            "AmazonECSTaskExecutionRolePolicy",
-            None,
-            False,
-        )
-        service_role(
-            roles["ecs_infrastructure_role"],
-            "ecs.amazonaws.com",
-            "ECS Express Mode uses it to create the load balancer and networking for each service.",
-            "AmazonECSInfrastructureRoleforExpressGatewayServices",
-            None,
-            False,
-        )
-    service_role(
-        roles["codebuild_role"],
-        "codebuild.amazonaws.com",
-        "CodeBuild uses it to build images from your Git repositories (not needed for image sources).",
-        None,
-        codebuild_policy(partition, account, args.ecr_prefix),
-        True,
-    )
+    for helper in service_roles(mode, partition, account, roles, args.ecr_prefix):
+        service_role(roles[helper.key], helper.service, helper.purpose, helper.managed, helper.inline, helper.optional)
 
     def finish(_results: dict[str, str]) -> list[str]:
         secrets = roles["ecs_execution_role"] if args.ecs else roles["apprunner_instance_role"]
@@ -1411,6 +1520,16 @@ def build_parser() -> argparse.ArgumentParser:
         aws.add_argument("--" + key.replace("_", "-"), dest=key, default=default, help=f"(default {default})")
     common(aws)
 
+    cfn = sub.add_parser(
+        "cloudformation",
+        help="print the same AWS setup as a CloudFormation template (for CloudBridge operators: host it on S3 and "
+        "set CLOUDBRIDGE_AWS_CLOUDFORMATION_TEMPLATE_URL to offer a Launch Stack link)",
+    )
+    cfn.add_argument("--ecs", action="store_true", help="ECS Express instead of App Runner")
+    cfn.add_argument("--ecr-prefix", default="cloudbridge", help="ECR repository prefix CloudBridge builds into")
+    for key, default in AWS_DEFAULT_ROLES.items():
+        cfn.add_argument("--" + key.replace("_", "-"), dest=key, default=default, help=f"(default {default})")
+
     def federation(p: argparse.ArgumentParser) -> None:
         p.add_argument("--issuer", required=True, help="CloudBridge's token issuer")
         p.add_argument("--subject", required=True, help="CloudBridge's token subject")
@@ -1451,6 +1570,11 @@ PLANS = {"aws": aws_plan, "azure": azure_plan, "aks": aks_plan, "kubernetes": ku
 
 def main(argv: Sequence[str] | None = None, ask: Ask | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.provider == "cloudformation":  # prints a document; changes nothing and asks nothing
+        roles = {key: getattr(args, key) for key in AWS_DEFAULT_ROLES}
+        template = cloudformation_template("ecs" if args.ecs else "apprunner", roles, args.ecr_prefix)
+        print(json.dumps(template, indent=2))
+        return 0
     if ask is None:
         if not args.dry_run and not sys.stdin.isatty():
             print("This script asks before every change, so it needs an interactive terminal (or use --dry-run).")

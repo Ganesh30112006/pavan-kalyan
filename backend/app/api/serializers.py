@@ -292,6 +292,14 @@ def aws_setup(provider: str, settings: Settings) -> AwsSetupOut | None:
     )
 
 
+def cloudformation_template_url(provider: str, settings: Settings) -> str | None:
+    if provider == "aws_app_runner":
+        return settings.aws_cloudformation_template_url
+    if provider == "aws_ecs_express":
+        return settings.aws_ecs_cloudformation_template_url
+    return None
+
+
 def provider_setup_out(provider: str, settings: Settings) -> ConnectionSetupOut:
     """What a customer's account must trust before any connection exists (Azure and AKS start here)."""
     federated = provider in ("azure_container_apps", "kubernetes")
@@ -301,6 +309,7 @@ def provider_setup_out(provider: str, settings: Settings) -> ConnectionSetupOut:
         federation_issuer=settings.azure_federation_issuer if federated else None,
         federation_audience=AZURE_TOKEN_AUDIENCE if federated else None,
         aws=aws_setup(provider, settings),
+        cloudformation_template_url=cloudformation_template_url(provider, settings),
     )
 
 
@@ -349,6 +358,7 @@ def connection_out(conn: ProviderConnection, settings: Settings) -> ConnectionOu
             federation_issuer=settings.azure_federation_issuer if federated else None,
             federation_audience=federation_audience(conn),
             aws=aws_setup(conn.provider, settings),
+            cloudformation_template_url=cloudformation_template_url(conn.provider, settings),
         ),
         validation=validation,
         created_at=conn.created_at,

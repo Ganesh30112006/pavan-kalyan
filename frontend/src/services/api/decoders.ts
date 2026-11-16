@@ -490,6 +490,7 @@ export const connectionSetup = object<ConnectionSetup>({
     ),
     null,
   ),
+  cloudformation_template_url: withDefault(nullable(string), null),
 });
 
 export const providerConnection = object<ProviderConnection>({

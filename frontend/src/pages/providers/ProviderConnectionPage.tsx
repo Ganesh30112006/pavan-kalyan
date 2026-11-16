@@ -29,7 +29,7 @@ import { redact } from '../../utils/redact';
 import { AccessDeniedPage } from '../errors/AccessDeniedPage';
 import { ErrorPageLayout } from '../errors/ErrorPageLayout';
 import { ScriptSetup } from './ScriptSetup';
-import { connectionCommand } from './setupCommand';
+import { connectionCommand, launchStackUrl } from './setupCommand';
 import './providers.css';
 
 const FAILED_STATUSES: readonly ConnectionStatus[] = [
@@ -226,9 +226,39 @@ function SetupSteps({ connection, validate }: { connection: ProviderConnection; 
   const then = oidc
     ? 'Add the authentication configuration it prints to the API server, then validate the connection.'
     : 'When the script says “All set”, validate the connection.';
+  const launch = launchStackUrl(connection);
   return (
     <div className="stack">
-      <h3 className="setup-subheading">With the setup script</h3>
+      {launch && (
+        <>
+          <h3 className="setup-subheading">Fastest: in the AWS console</h3>
+          <ol className="setup-steps">
+            <li>
+              Sign in to AWS account <code>{connection.config.account_id ?? '—'}</code>, then open{' '}
+              <a href={launch} target="_blank" rel="noreferrer">
+                the prepared CloudBridge stack
+              </a>
+              . Every value is already filled in.
+            </li>
+            <li>
+              Tick “I acknowledge that AWS CloudFormation might create IAM resources with custom names” and select{' '}
+              <strong>Create stack</strong>. It creates the same roles as the setup script and no access keys.
+            </li>
+            <li>
+              {validate ? (
+                <div className="stack">
+                  <span>When the stack shows CREATE_COMPLETE (about a minute), validate the connection.</span>
+                  <div>{validate}</div>
+                </div>
+              ) : (
+                'When the stack shows CREATE_COMPLETE (about a minute), validate the connection.'
+              )}
+            </li>
+          </ol>
+          <p className="field__hint">If the roles already exist, the stack fails: use the setup script instead, which updates them.</p>
+        </>
+      )}
+      <h3 className="setup-subheading">{launch ? 'Or with the setup script' : 'With the setup script'}</h3>
       <ScriptSetup
         shell={aws ? 'aws' : oidc ? 'kubernetes' : 'azure'}
         command={command}

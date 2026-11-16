@@ -218,6 +218,7 @@ SETUP = {
             "ecs_infrastructure_role": str,
         }
     ),
+    "cloudformation_template_url": opt(str),
 }
 CONNECTION = {
     "id": str,

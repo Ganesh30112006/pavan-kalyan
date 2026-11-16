@@ -71,6 +71,28 @@ function audienceOption(audience: string | null): Option[] {
   return audience && audience !== AZURE_AUDIENCE ? [['--audience', audience]] : [];
 }
 
+/**
+ * The AWS console's "quick create" link for the operator's CloudFormation template, with this connection's values
+ * filled in, or null when it cannot be offered (no template configured, a role ARN with a path, or not the standard
+ * AWS partition, whose console lives elsewhere).
+ */
+export function launchStackUrl(c: ProviderConnection): string | null {
+  if (c.provider !== 'aws_app_runner' && c.provider !== 'aws_ecs_express') return null;
+  const template = c.setup?.cloudformation_template_url;
+  const principal = c.setup?.trusted_principal;
+  const externalId = c.setup?.external_id;
+  const roleName = /^arn:aws:iam::\d{12}:role\/([\w+=,.@-]{1,64})$/.exec(c.config.role_arn ?? '')?.[1];
+  if (!template || !principal || !externalId || !roleName) return null;
+  const params = new URLSearchParams({
+    templateURL: template,
+    stackName: `CloudBridge-${roleName.replace(/[^A-Za-z0-9-]/g, '-')}`,
+    param_CloudBridgePrincipal: principal,
+    param_ExternalId: externalId,
+    param_RoleName: roleName,
+  });
+  return `https://console.aws.amazon.com/cloudformation/home?region=${encodeURIComponent(c.default_region)}#/stacks/quickcreate?${params.toString()}`;
+}
+
 /** The command that sets up an existing connection's account, or null when the script does not cover it. */
 export function connectionCommand(c: ProviderConnection): string | null {
   const setup = c.setup;

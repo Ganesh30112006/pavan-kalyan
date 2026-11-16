@@ -95,7 +95,11 @@ The script prints every step with its details, then asks once (`y` all, `s` step
 - `aks`: finds the cluster (by name or API server), requires Entra ID + Azure RBAC, optional namespace
   create via `az aks command invoke`, AKS RBAC Writer on the namespace, prints API server + public CA.
 - `kubernetes`: namespace Role/RoleBinding via kubectl, prints the JWT authenticator config.
+- `cloudformation [--ecs]`: prints the same AWS roles/policies as a CloudFormation template (built from the same
+  functions; a test proves they match). Operators host it on S3 and set `CLOUDBRIDGE_AWS_[ECS_]CLOUDFORMATION_TEMPLATE_URL`;
+  the connection page then shows a "Launch Stack" quick-create link (`launchStackUrl`) above the script.
 The UI builds the exact command (`setupCommand.ts`); for Azure/AKS before saving, after saving for AWS.
+AWS validation retries the AssumeRole after 5s and 10s when it is refused (a just-created role propagating).
 `backend/tests/test_connect_script.py` checks the AWS policy covers every SDK call in aws.py/ecs.py —
 **when an adapter starts calling a new AWS API, update the script's policy, ProviderPermissions.tsx and
 backend/README.md together.**
@@ -141,7 +145,7 @@ Local run: backend on `localhost:8000` (`uvicorn app.main:create_app --factory`)
 non-interactive). Demo UI without backend: `npm run dev:demo` (in-memory, page reload logs out; navigate
 with history.pushState in Playwright to keep the session).
 
-Current baseline (2026-11-16): backend 203 tests, frontend 272 tests, all lint/type/build checks clean.
+Current baseline (2026-11-16): backend 213 tests, frontend 274 tests, all lint/type/build checks clean.
 
 ## 6. Cloud accounts and their state
 
@@ -184,6 +188,8 @@ Root cannot assume roles, and the safety classifier blocks creating access keys.
   owner was offered optional log-group cleanup, not yet decided.
 - Azure and GCP built images are not removed on app delete. Domains tab never exercised live.
 - GCP adapter never live-tested (by rule).
+- Launch Stack: both templates pass `aws cloudformation validate-template`, but no stack has been created live yet
+  (needs a temporary S3 bucket; the auto-mode classifier blocked creating it on 2026-11-16, so ask the user).
 
 ## 8. Environment traps (Windows + Git Bash + PowerShell)
 

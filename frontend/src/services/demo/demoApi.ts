@@ -48,6 +48,7 @@ function demoSetup(provider: ProviderKind): ConnectionSetup {
           ecs_infrastructure_role: 'CloudBridgeECSInfrastructure',
         }
       : null,
+    cloudformation_template_url: null,
   };
 }
 

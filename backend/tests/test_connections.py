@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
 from app.providers.base import ProviderError
-from tests.conftest import ApiClient, Env, image_app
+from tests.conftest import ApiClient, Env, image_app, make_settings
 from tests.contract import CAPABILITIES, CONNECTION, SETUP, check, field_errors
 
 AWS = {
@@ -74,6 +79,35 @@ def test_aws_setup_names_the_roles_the_setup_script_creates(owner: ApiClient) ->
         "ecs_infrastructure_role": "CloudBridgeECSInfrastructure",
     }
     assert owner.post("/cloud-connections", json=GCP).json()["setup"]["aws"] is None
+    assert aws["setup"]["cloudformation_template_url"] is None
+
+
+def test_launch_stack_template_is_offered_per_aws_provider(env: Env, owner: ApiClient) -> None:
+    app_runner = "https://cb-templates.s3.ap-south-1.amazonaws.com/apprunner.json"
+    ecs = "https://s3.amazonaws.com/cb-templates/ecs.json"
+    env.settings.aws_cloudformation_template_url = app_runner
+    env.settings.aws_ecs_cloudformation_template_url = ecs
+
+    created = owner.post("/cloud-connections", json=AWS).json()
+    check(created, CONNECTION)
+    assert created["setup"]["cloudformation_template_url"] == app_runner
+    assert owner.get("/providers/aws_ecs_express/setup").json()["cloudformation_template_url"] == ecs
+    assert owner.get("/providers/azure_container_apps/setup").json()["cloudformation_template_url"] is None
+    assert owner.post("/cloud-connections", json=GCP).json()["setup"]["cloudformation_template_url"] is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://cb-templates.s3.amazonaws.com/t.json",
+        "https://example.com/t.json",
+        "https://cb-templates.s3.amazonaws.com.evil.test/t.json",
+        "https://cb-templates.s3.amazonaws.com/",
+    ],
+)
+def test_launch_stack_template_must_be_an_s3_https_url(tmp_path: Path, url: str) -> None:
+    with pytest.raises(ValidationError, match="Amazon S3"):
+        make_settings(tmp_path, aws_cloudformation_template_url=url)
 
 
 def test_provider_setup_is_known_before_connecting(env: Env, owner: ApiClient) -> None:
@@ -90,6 +124,7 @@ def test_provider_setup_is_known_before_connecting(env: Env, owner: ApiClient) -
             "federation_issuer": "https://abc.tokens.sts.global.api.aws",
             "federation_audience": "api://AzureADTokenExchange",
             "aws": None,
+            "cloudformation_template_url": None,
         }
     aws = owner.get("/providers/aws_ecs_express/setup").json()
     assert aws["external_id"] is None and aws["federation_issuer"] is None

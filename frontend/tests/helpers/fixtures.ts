@@ -213,6 +213,7 @@ export function makeConnection(overrides: Partial<ProviderConnection> = {}): Pro
         ecs_execution_role: 'CloudBridgeECSExecution',
         ecs_infrastructure_role: 'CloudBridgeECSInfrastructure',
       },
+      cloudformation_template_url: null,
     },
     validation: null,
     created_at: T,

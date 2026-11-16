@@ -68,6 +68,7 @@ export function createFakeApi(mode: 'live' | 'demo' = 'live') {
         federation_issuer: 'https://abc.tokens.sts.global.api.aws',
         federation_audience: 'api://AzureADTokenExchange',
         aws: null,
+        cloudformation_template_url: null,
       })),
       get: vi.fn<CloudBridgeApi['providers']['get']>(async () => makeConnection()),
       create: vi.fn<CloudBridgeApi['providers']['create']>(async () => makeConnection({ id: 'conn-new', status: 'pending_validation' })),

@@ -458,6 +458,72 @@ def test_aws_failed_step_asks_before_going_on() -> None:
     assert len(result.cloud.ran("aws iam create-role")) == 1
 
 
+# ---------------------------------------------------------------------------- CloudFormation
+
+
+def _resolve(value: Any, values: dict[str, str]) -> Any:
+    """What CloudFormation does with Fn::Sub and Ref, for the parameters and pseudo parameters given."""
+    if isinstance(value, dict):
+        if set(value) == {"Fn::Sub"}:
+            return re.sub(r"\$\{([^}]+)\}", lambda m: values[m.group(1)], value["Fn::Sub"])
+        if set(value) == {"Ref"}:
+            return values[value["Ref"]]
+        return {key: _resolve(item, values) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_resolve(item, values) for item in value]
+    return value
+
+
+@pytest.mark.parametrize("ecs", [False, True])
+def test_cloudformation_template_creates_exactly_what_the_script_creates(
+    ecs: bool, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cc.main(["cloudformation", *(["--ecs"] if ecs else []), "--codebuild-role", "AcmeBuild"]) == 0
+    template = json.loads(capsys.readouterr().out)
+    stack = _resolve(
+        template["Resources"],
+        {
+            "AWS::Partition": "aws",
+            "AWS::AccountId": "123456789012",
+            "CloudBridgePrincipal": PRINCIPAL,
+            "ExternalId": EXTERNAL_ID,
+            "RoleName": "CloudBridgeDeploy",
+        },
+    )
+    script = run([*AWS_ARGS, *(["--ecs"] if ecs else []), "--codebuild-role", "AcmeBuild"], aws_cloud())
+    assert script.code == 0, script.output
+
+    roles = {r["Properties"]["RoleName"]: r["Properties"] for r in stack.values()}
+    created = {c.opt("--role-name"): c for c in script.cloud.ran("aws iam create-role")}
+    assert set(roles) == set(created)
+    for name, properties in roles.items():
+        assert properties["AssumeRolePolicyDocument"] == created[name].docs[0], name
+        inline = [c.docs[0] for c in script.cloud.ran("aws iam put-role-policy") if c.opt("--role-name") == name]
+        assert [p["PolicyDocument"] for p in properties.get("Policies", [])] == inline, name
+        attached = [
+            c.opt("--policy-arn")
+            for c in script.cloud.ran("aws iam attach-role-policy")
+            if c.opt("--role-name") == name
+        ]
+        assert properties.get("ManagedPolicyArns", []) == attached, name
+        assert all(
+            set(p) == {"PolicyName", "PolicyDocument"} and p["PolicyName"] == "CloudBridge"
+            for p in properties.get("Policies", [])
+        )
+    assert template["Outputs"]["RoleArn"]["Value"] == {"Fn::GetAtt": ["ConnectionRole", "Arn"]}
+    assert set(template["Parameters"]) == {"CloudBridgePrincipal", "ExternalId", "RoleName"}
+
+
+def test_cloudformation_parameters_accept_what_cloudbridge_issues() -> None:
+    template = cc.cloudformation_template("apprunner", dict(cc.AWS_DEFAULT_ROLES), "cloudbridge")
+    pattern = {name: p["AllowedPattern"] for name, p in template["Parameters"].items()}
+    assert re.fullmatch(pattern["CloudBridgePrincipal"], PRINCIPAL)
+    assert re.fullmatch(pattern["CloudBridgePrincipal"], "arn:aws:iam::492462083767:user/cloudbridge-platform-test")
+    assert re.fullmatch(pattern["ExternalId"], EXTERNAL_ID)
+    assert re.fullmatch(pattern["RoleName"], "CloudBridgeDeploy")
+    assert not re.fullmatch(pattern["RoleName"], "team/CloudBridgeDeploy")
+
+
 # ---------------------------------------------------------------------------- Azure
 
 

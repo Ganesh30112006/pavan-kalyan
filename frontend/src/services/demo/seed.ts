@@ -102,6 +102,7 @@ export function createSeed(): DemoState {
           ecs_execution_role: 'CloudBridgeECSExecution',
           ecs_infrastructure_role: 'CloudBridgeECSInfrastructure',
         },
+        cloudformation_template_url: null,
       },
       validation: {
         stage: null,
@@ -142,7 +143,14 @@ export function createSeed(): DemoState {
         kubernetes_auth: null,
         token_audience: null,
       },
-      setup: { external_id: null, trusted_principal: 'demo-principal', federation_issuer: null, federation_audience: null, aws: null },
+      setup: {
+        external_id: null,
+        trusted_principal: 'demo-principal',
+        federation_issuer: null,
+        federation_audience: null,
+        aws: null,
+        cloudformation_template_url: null,
+      },
       validation: {
         stage: null,
         started_at: minutesAgo(600),
