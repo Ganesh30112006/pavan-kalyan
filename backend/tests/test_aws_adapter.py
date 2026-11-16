@@ -125,14 +125,54 @@ def test_validate_connection_success(tmp_path: Path, stubs: StubbedSessions) -> 
 
 
 def test_validate_connection_bad_trust_policy(tmp_path: Path, stubs: StubbedSessions) -> None:
-    stubs.stub("sts").add_client_error(
-        "assume_role", "AccessDenied", "User is not authorized to perform sts:AssumeRole"
+    for _ in range(3):
+        stubs.stub("sts").add_client_error(
+            "assume_role", "AccessDenied", "User is not authorized to perform sts:AssumeRole"
+        )
+    waits: list[float] = []
+    result = AwsAppRunnerAdapter(make_settings(tmp_path), base_session=stubs, sleep=waits.append).validate_connection(
+        CONN, lambda *_: None
     )
-    result = adapter(tmp_path, stubs).validate_connection(CONN, lambda *_: None)
     assert result.status == "invalid_credentials"
     assert result.checks[0].status == "failed"
     assert "trust policy" in (result.checks[0].detail or "")
     assert all(c.status == "skipped" for c in result.checks[1:])
+    # Asked three times, waiting in between, before giving up.
+    assert waits == [5.0, 10.0]
+    stubs.stub("sts").assert_no_pending_responses()
+
+
+def test_validate_connection_waits_for_a_role_that_was_just_created(tmp_path: Path, stubs: StubbedSessions) -> None:
+    # IAM has not reached STS yet: the first attempt is refused, the next one works.
+    stubs.stub("sts").add_client_error(
+        "assume_role", "AccessDenied", "User is not authorized to perform sts:AssumeRole"
+    )
+    assume_role(stubs)
+    stubs.stub("apprunner").add_response("list_services", {"ServiceSummaryList": []}, {"MaxResults": 1})
+    stubs.stub("ecr").add_response("describe_repositories", {"repositories": []}, {"maxResults": 1})
+    stubs.stub("sts").add_response(
+        "get_caller_identity",
+        {"Account": "123456789012", "Arn": "arn:aws:sts::123456789012:assumed-role/x", "UserId": "u"},
+    )
+    stubs.stub("codebuild").add_response("list_projects", {"projects": ["cloudbridge-orders"]})
+    waits: list[float] = []
+    result = AwsAppRunnerAdapter(make_settings(tmp_path), base_session=stubs, sleep=waits.append).validate_connection(
+        CONN, lambda *_: None
+    )
+    assert result.status == "connected", result
+    assert waits == [5.0]
+
+
+def test_validate_connection_does_not_wait_on_other_failures(tmp_path: Path) -> None:
+    class NoCreds:
+        def client(self, *args: Any, **kwargs: Any) -> Any:
+            raise NoCredentialsError()
+
+    waits: list[float] = []
+    result = AwsAppRunnerAdapter(
+        make_settings(tmp_path), base_session=NoCreds(), sleep=waits.append
+    ).validate_connection(CONN, lambda *_: None)
+    assert result.error_code == "platform_not_configured" and waits == []
 
 
 def test_validate_connection_missing_permission(tmp_path: Path, stubs: StubbedSessions) -> None:

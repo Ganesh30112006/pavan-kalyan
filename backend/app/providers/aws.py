@@ -14,6 +14,8 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import threading
+import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
 import boto3
@@ -78,6 +80,9 @@ CHECKS = (
     "Account matches",
     "CodeBuild access (repository sources)",
 )
+# A role created or changed moments ago (the setup script finished just before "Validate") is often
+# refused by STS for a few seconds while IAM propagates, so validation asks again before failing.
+ASSUME_RETRY_DELAYS = (5.0, 10.0)
 
 ACCESS_DENIED = {"AccessDenied", "AccessDeniedException", "UnauthorizedOperation", "UnauthorizedException"}
 BAD_TOKEN = {"ExpiredToken", "ExpiredTokenException", "InvalidClientTokenId", "UnrecognizedClientException"}
@@ -224,9 +229,11 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
         settings: Settings,
         base_session: Any | None = None,
         oci: OciResolver | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._settings = settings
         self._base_session = base_session
+        self._sleep = sleep
         self._oci = oci or OciResolver(realm_allowed=lambda host: host == ECR_PUBLIC_HOST)
         self._lock = threading.Lock()
         self._sessions: dict[str, tuple[dt.datetime, Any]] = {}
@@ -307,10 +314,17 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
             return ConnectionValidationResult(error.connection_status, error.code, list(checks))
 
         progress("connecting", list(checks))
-        try:
-            session = self._session(conn)
-        except ProviderError as error:
-            return finish(error, 0)
+        attempt = 0
+        while True:
+            try:
+                session = self._session(conn)
+                break
+            except ProviderError as error:
+                refused = error.code == "invalid_credentials" and bool(conn.role_arn and conn.external_id)
+                if not refused or attempt >= len(ASSUME_RETRY_DELAYS):
+                    return finish(error, 0)
+                self._sleep(ASSUME_RETRY_DELAYS[attempt])
+                attempt += 1
         update(0, "passed")
 
         progress("validating_permissions", list(checks))

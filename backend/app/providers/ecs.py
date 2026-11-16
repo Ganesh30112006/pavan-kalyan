@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import time
+from collections.abc import Callable
 from typing import Any
 
 from botocore.exceptions import ClientError
@@ -89,8 +91,14 @@ class AwsEcsExpressAdapter(AwsAppRunnerAdapter):
     label = "AWS ECS Express Mode"
     checks = CHECKS
 
-    def __init__(self, settings: Settings, base_session: Any | None = None, oci: OciResolver | None = None) -> None:
-        super().__init__(settings, base_session, oci or OciResolver(realm_allowed=_realm_allowed))
+    def __init__(
+        self,
+        settings: Settings,
+        base_session: Any | None = None,
+        oci: OciResolver | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        super().__init__(settings, base_session, oci or OciResolver(realm_allowed=_realm_allowed), sleep)
 
     def _ecs(self, conn: ConnectionInfo) -> Any:
         return self._client(conn, "ecs")
