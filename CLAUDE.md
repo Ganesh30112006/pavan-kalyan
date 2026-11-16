@@ -190,8 +190,8 @@ Root cannot assume roles, and the safety classifier blocks creating access keys.
 - GCP adapter never live-tested (by rule).
 - Launch Stack passed live on 2026-11-16 (App Runner template in a private S3 bucket, stack created with exactly
   the link's template URL and parameters, CREATE_COMPLETE, then Connected on the first validation; all deleted).
-  The console's quick-create page itself was not clicked (needs the root console sign-in); the ECS template
-  only passed `validate-template`.
+  The ECS template passed the same way (CREATE_COMPLETE, Connected). The console's quick-create page itself was
+  not clicked (needs a root console sign-in nobody was there to do).
 
 ## 8. Environment traps (Windows + Git Bash + PowerShell)
 
@@ -203,4 +203,7 @@ Root cannot assume roles, and the safety classifier blocks creating access keys.
 - Opening a window for the user: `Start-Process powershell -ArgumentList '-NoExit','-EncodedCommand',$b64`
   (plain `-Command` strings lose quotes and break on parentheses).
 - Playwright MCP can only write inside the project folder; delete `.playwright-mcp/` afterwards.
+- `aws login` on Windows ignores `BROWSER` and also opens the user's default browser, where root is signed
+  in: if that tab completes first, the test profile gets **root**. Check `aws sts get-caller-identity --profile …`
+  after every login; on root, delete the profile's `login_session` line (never `aws logout` a root session) and redo.
 - Docker Desktop is usually not running; no Python 3.9 locally (use `vermin -t=3.9-` to check the script).
