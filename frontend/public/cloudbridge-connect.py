@@ -163,6 +163,7 @@ Ask = Callable[[str], str]
 
 
 def run_plan(plan: Plan, runner: Runner, ask: Ask) -> int:
+    """Shows every step with its details, then asks once: all of them, step by step, or none."""
     out = runner.out
     for line in plan.heading:
         out(line)
@@ -171,11 +172,26 @@ def run_plan(plan: Plan, runner: Runner, ask: Ask) -> int:
     for number, step in enumerate(plan.steps, 1):
         suffix = " (already done)" if step.done else (" (optional)" if step.optional else "")
         out(f"  {number}. {step.title}{suffix}")
+        for line in [f"Already done: {step.done}"] if step.done else step.details:
+            out(f"       {line}")
     out("")
     if runner.dry_run:
-        out("Dry run: nothing will be changed.")
-    else:
-        out("You will be asked before each step. Answer y to do it, n to skip it, or q to stop.")
+        out("Dry run finished: nothing was changed. Run the same command without --dry-run to make these changes.")
+        return 0
+
+    pending = sum(1 for step in plan.steps if not step.done)
+    one_by_one = False
+    if pending:
+        answer = _answer(
+            ask,
+            f"Make {'this change' if pending == 1 else f'these {pending} changes'}? "
+            "[y = yes / s = ask me step by step / q = quit] ",
+            ("y", "s", "q"),
+        )
+        if answer == "q":
+            out("Stopped. Nothing was changed.")
+            return 1
+        one_by_one = answer == "s"
 
     results: dict[str, str] = {}
     failed = skipped = 0
@@ -183,14 +199,8 @@ def run_plan(plan: Plan, runner: Runner, ask: Ask) -> int:
         out("")
         out(f"[{number}/{len(plan.steps)}] {step.title}")
         if step.done:
-            out(f"  Already done: {step.done}")
+            out("  Already done.")
             results[step.title] = "done"
-            continue
-        for line in step.details:
-            out(f"  {line}")
-        if runner.dry_run:
-            out("  Dry run: not changed.")
-            results[step.title] = "dry-run"
             continue
         reason = step.blocked()  # from what earlier steps did; never calls the cloud
         if reason:
@@ -198,18 +208,21 @@ def run_plan(plan: Plan, runner: Runner, ask: Ask) -> int:
             results[step.title] = "blocked"
             skipped += 1
             continue
-        answer = _answer(ask, "  Do this step? [y/n/q] ", ("y", "n", "q"))
-        if answer == "q":
-            out("Stopped. Steps already done stay in place; run the script again to continue.")
-            return 1
-        if answer == "n":
-            if not step.optional:
-                out("  Skipped. CloudBridge cannot connect until this is done.")
-            else:
-                out("  Skipped.")
-            results[step.title] = "skipped"
-            skipped += 1
-            continue
+        if one_by_one:
+            for line in step.details:
+                out(f"  {line}")
+            answer = _answer(ask, "  Do this step? [y/n/q] ", ("y", "n", "q"))
+            if answer == "q":
+                out("Stopped. Steps already done stay in place; run the script again to continue.")
+                return 1
+            if answer == "n":
+                if not step.optional:
+                    out("  Skipped. CloudBridge cannot connect until this is done.")
+                else:
+                    out("  Skipped.")
+                results[step.title] = "skipped"
+                skipped += 1
+                continue
         try:
             outcome = step.apply()
         except CommandError as error:
@@ -224,9 +237,6 @@ def run_plan(plan: Plan, runner: Runner, ask: Ask) -> int:
         out(f"  Done. {outcome}".rstrip())
 
     out("")
-    if runner.dry_run:
-        out("Dry run finished. Run the same command without --dry-run to make these changes.")
-        return 0
     for line in plan.finish(results):
         out(line)
     if failed or skipped:

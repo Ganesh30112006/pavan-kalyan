@@ -85,6 +85,7 @@ Azure and AKS via AWS outbound web identity federation (`sts:GetWebIdentityToken
 **Guided setup script** (`frontend/public/cloudbridge-connect.py`, Python 3.9+, stdlib only). Runs in the
 customer's AWS CloudShell / Azure Cloud Shell with *their* sign-in; shows every step and asks y/n/q;
 `--dry-run`; never creates keys or secrets; sends nothing to CloudBridge. Subcommands:
+The script prints every step with its details, then asks once (`y` all, `s` step by step, `q` quit).
 - `aws`: role CloudBridge assumes (trust = principal + external ID), inline policy `CloudBridge`, helper
   roles (`CloudBridgeAppRunnerECRAccess`, `CloudBridgeAppRunnerInstance` or ECS execution/infrastructure,
   `CloudBridgeCodeBuild`). Stops if signed in to another account or a same-name role has another path.
@@ -140,7 +141,7 @@ Local run: backend on `localhost:8000` (`uvicorn app.main:create_app --factory`)
 non-interactive). Demo UI without backend: `npm run dev:demo` (in-memory, page reload logs out; navigate
 with history.pushState in Playwright to keep the session).
 
-Current baseline (2026-10-18): backend 201 tests, frontend 269 tests, all lint/type/build checks clean.
+Current baseline (2026-11-16): backend 203 tests, frontend 272 tests, all lint/type/build checks clean.
 
 ## 6. Cloud accounts and their state
 
@@ -155,7 +156,9 @@ Current baseline (2026-10-18): backend 201 tests, frontend 269 tests, all lint/t
 
 Live results so far: App Runner, ECS Express, Azure Container Apps and AKS all passed end to end
 (earlier sessions); on 2026-10-18 the setup script + connect + validate + App Runner deploy + delete
-passed on the real AWS account. Shared report artifact: https://claude.ai/artifact/718QogzEMgpRuzs2shY9xg
+passed on the real AWS account. On 2026-11-16 the shorter AWS connect flow (role ARN filled from the
+account ID, one-paste `curl … && python3 …` command, a single confirmation for the whole plan, "Validate now" under
+the script step) passed live: Connected on the first validation; everything cleaned. Shared report artifact: https://claude.ai/artifact/718QogzEMgpRuzs2shY9xg
 
 ### Running a live AWS test (keyless recipe that works)
 

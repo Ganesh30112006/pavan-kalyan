@@ -40,7 +40,7 @@ import {
 } from '../../utils/validation';
 import { ProviderPermissions } from './ProviderPermissions';
 import { ScriptSetup } from './ScriptSetup';
-import { NEW_CONNECTION_DEFAULTS, newConnectionCommand } from './setupCommand';
+import { DEFAULT_AWS_ROLE, NEW_CONNECTION_DEFAULTS, defaultRoleArn, newConnectionCommand } from './setupCommand';
 import './providers.css';
 
 const INITIAL = {
@@ -312,6 +312,20 @@ function SetupForm({ provider }: { provider: ProviderKind }) {
     disabled: create.isPending,
   });
 
+  /** Typing the account ID fills in the suggested role ARN, unless the role ARN was changed by hand. */
+  const accountField = () => {
+    const base = field('account_id');
+    return {
+      ...base,
+      onChange: (e: { target: { value: string } }) => {
+        const role = values.role_arn.trim();
+        const suggested = role === '' || role === defaultRoleArn(values.account_id);
+        form.setValue('account_id', e.target.value);
+        if (suggested) form.setValue('role_arn', defaultRoleArn(e.target.value) ?? '');
+      },
+    };
+  };
+
   const clientMessages = form.submitted
     ? [...Object.values(form.clientErrors).filter((m): m is string => Boolean(m)), ...(accountMismatch ? [accountMismatch] : [])]
     : [];
@@ -342,15 +356,15 @@ function SetupForm({ provider }: { provider: ProviderKind }) {
           </SelectField>
           {isAws ? (
             <>
-              <TextField label="AWS account ID" required inputMode="numeric" mono autoComplete="off" placeholder="123456789012" {...field('account_id')} />
+              <TextField label="AWS account ID" required inputMode="numeric" mono autoComplete="off" placeholder="123456789012" {...accountField()} />
               <TextField
                 label="IAM role ARN"
                 required
                 mono
                 spellCheck={false}
                 autoComplete="off"
-                placeholder="arn:aws:iam::123456789012:role/CloudBridgeDeploy"
-                hint="The role CloudBridge assumes, e.g. role/CloudBridgeDeploy. It need not exist yet: the next page gives you a script that creates it."
+                placeholder={`arn:aws:iam::123456789012:role/${DEFAULT_AWS_ROLE}`}
+                hint={`The role CloudBridge assumes; filled in from the account ID as role/${DEFAULT_AWS_ROLE}. Change it to use another name. It need not exist yet: the next page gives you a script that creates it.`}
                 {...field('role_arn')}
                 error={form.errorFor('role_arn') ?? (form.submitted ? accountMismatch : null)}
               />

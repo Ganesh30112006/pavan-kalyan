@@ -2,6 +2,8 @@ import { screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import {
   connectionCommand,
+  defaultRoleArn,
+  downloadAndRun,
   newConnectionCommand,
   shellArg,
   type NewConnectionValues,
@@ -137,11 +139,44 @@ describe('setup script on the provider pages', () => {
 
     const command = await screen.findByText(/^python3 cloudbridge-connect\.py aws /);
     expect(command).toHaveTextContent('--external-id ext-123');
+    // One paste downloads the script and runs exactly that command.
+    expect(screen.getByText(/^curl -fsSLO /)).toHaveTextContent(
+      new RegExp(`^curl -fsSLO http://localhost(:\\d+)?/cloudbridge-connect\\.py && ${command.textContent!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`),
+    );
     expect(screen.getByRole('link', { name: 'AWS CloudShell' })).toHaveAttribute('href', 'https://console.aws.amazon.com/cloudshell/home');
     expect(screen.getByRole('link', { name: /Download cloudbridge-connect\.py/ })).toHaveAttribute('href', '/cloudbridge-connect.py');
     expect(screen.getByRole('button', { name: 'Copy setup command' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy run command' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Or by hand' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Copy trust policy' })).toBeInTheDocument();
+  });
+
+  it('validates from the end of the script steps', async () => {
+    const api = createFakeApi();
+    const pending = makeConnection({ status: 'pending_validation', last_validated_at: null });
+    const validating = { ...pending, status: 'validating' as const };
+    let started = false;
+    api.providers.get.mockImplementation(async () => (started ? validating : pending));
+    api.providers.validate.mockImplementation(async () => {
+      started = true;
+      return validating;
+    });
+    const { user } = renderApp('/providers/conn-1', api);
+
+    await user.click(await screen.findByRole('button', { name: 'Validate now' }));
+    expect(api.providers.validate).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('Validating connection', { selector: '.alert__title' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Validate now' })).toBeDisabled();
+  });
+
+  it('suggests a role ARN only for a complete account ID, and quotes the download URL when needed', () => {
+    expect(defaultRoleArn(' 123456789012 ')).toBe('arn:aws:iam::123456789012:role/CloudBridgeDeploy');
+    expect(defaultRoleArn('12345678901')).toBeNull();
+    expect(defaultRoleArn('12345678901a')).toBeNull();
+    expect(downloadAndRun('https://cb.test/cloudbridge-connect.py', 'python3 x.py aws')).toBe(
+      'curl -fsSLO https://cb.test/cloudbridge-connect.py && python3 x.py aws',
+    );
+    expect(downloadAndRun('https://cb.test/a b/cloudbridge-connect.py', 'run')).toBe("curl -fsSLO 'https://cb.test/a b/cloudbridge-connect.py' && run");
   });
 
   it('shows no script once connected, and only manual steps for Google Cloud', async () => {
@@ -184,7 +219,7 @@ describe('setup script on the provider pages', () => {
     const { user, unmount } = renderApp('/providers/new?provider=azure_container_apps', api);
     expect(await screen.findByText('Choose the default region below to get the command.')).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText(/Default region/), 'eastus2');
-    expect(await screen.findByText(/--location eastus2/)).toBeInTheDocument();
+    expect(await screen.findByText(/^python3 .*--location eastus2/)).toBeInTheDocument();
     unmount();
 
     api.providers.getSetup.mockResolvedValue({ ...FEDERATED, federation_issuer: null });

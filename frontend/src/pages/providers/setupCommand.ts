@@ -29,6 +29,20 @@ export function scriptUrl(origin: string, base: string): string {
   return `${origin}${base.endsWith('/') ? base : `${base}/`}${SETUP_SCRIPT}`;
 }
 
+/** One paste: download the script, then run it only if the download worked. */
+export function downloadAndRun(url: string, command: string): string {
+  return `curl -fsSLO ${shellArg(url)} && ${command}`;
+}
+
+/** The role the setup script creates when the form keeps the suggested name. */
+export const DEFAULT_AWS_ROLE = 'CloudBridgeDeploy';
+
+/** The suggested role ARN for an account, or null until the account ID is complete. */
+export function defaultRoleArn(accountId: string): string | null {
+  const id = accountId.trim();
+  return /^\d{12}$/.test(id) ? `arn:aws:iam::${id}:role/${DEFAULT_AWS_ROLE}` : null;
+}
+
 /** Quotes a value for a POSIX shell. IDs, ARNs, names and URLs pass through unchanged. */
 export function shellArg(value: string): string {
   return /^[A-Za-z0-9_./:=@,+%-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;

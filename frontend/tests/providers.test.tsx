@@ -137,10 +137,39 @@ describe('provider setup', () => {
     await user.type(await screen.findByLabelText(/Connection name/), 'Prod');
     await user.selectOptions(screen.getByLabelText(/Default region/), 'us-east-1');
     await user.type(screen.getByLabelText(/AWS account ID/), '111111111111');
+    await user.clear(screen.getByLabelText(/IAM role ARN/));
     await user.type(screen.getByLabelText(/IAM role ARN/), 'arn:aws:iam::222222222222:role/Deploy');
     await user.click(screen.getByRole('button', { name: 'Save and continue' }));
     expect(screen.getAllByText(/different account/).length).toBeGreaterThan(0);
     expect(api.providers.create).not.toHaveBeenCalled();
+  });
+
+  it('fills in the role ARN from the account ID until the role is changed by hand', async () => {
+    const api = createFakeApi();
+    const { user } = renderApp('/providers/new?provider=aws_app_runner', api);
+    const account = await screen.findByLabelText(/AWS account ID/);
+    const role = screen.getByLabelText(/IAM role ARN/);
+
+    await user.type(account, '12345678901');
+    expect(role).toHaveValue('');
+    await user.type(account, '2');
+    expect(role).toHaveValue('arn:aws:iam::123456789012:role/CloudBridgeDeploy');
+    await user.clear(account);
+    await user.type(account, '210987654321');
+    expect(role).toHaveValue('arn:aws:iam::210987654321:role/CloudBridgeDeploy');
+
+    await user.clear(role);
+    await user.type(role, 'arn:aws:iam::210987654321:role/Custom');
+    await user.type(account, '{Backspace}1');
+    expect(role).toHaveValue('arn:aws:iam::210987654321:role/Custom');
+
+    await user.type(screen.getByLabelText(/Connection name/), 'Prod');
+    await user.selectOptions(screen.getByLabelText(/Default region/), 'us-east-1');
+    await user.click(screen.getByRole('button', { name: 'Save and continue' }));
+    await waitFor(() => expect(api.providers.create).toHaveBeenCalled());
+    expect(api.providers.create.mock.calls[0]?.[0]).toMatchObject({
+      aws: { account_id: '210987654321', role_arn: 'arn:aws:iam::210987654321:role/Custom' },
+    });
   });
 
   it('connects Azure with an app registration and no client secret', async () => {

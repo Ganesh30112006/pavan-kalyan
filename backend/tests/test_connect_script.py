@@ -109,9 +109,13 @@ def not_found(text: str = "NoSuchEntity: not found") -> Exception:
 
 
 class Result:
-    def __init__(self, code: int, lines: list[str], cloud: FakeCloud, prompts: list[str]) -> None:
+    def __init__(
+        self, code: int, lines: list[str], cloud: FakeCloud, prompts: list[str], first_ask: int | None
+    ) -> None:
         self.code = code
         self.output = "\n".join(lines)
+        # What the user had seen when the first question came.
+        self.before_first_question = "\n".join(lines[:first_ask]) if first_ask is not None else None
         self.cloud = cloud
         self.prompts = prompts
 
@@ -121,8 +125,11 @@ def run(argv: list[str], cloud: FakeCloud, answers: list[str] | None = None) -> 
     lines: list[str] = []
     prompts: list[str] = []
     replies = list(answers) if answers is not None else None
+    first_ask: list[int] = []
 
     def ask(prompt: str) -> str:
+        if not prompts:
+            first_ask.append(len(lines))
         prompts.append(prompt)
         if replies is None:
             return "y"
@@ -142,7 +149,7 @@ def run(argv: list[str], cloud: FakeCloud, answers: list[str] | None = None) -> 
         code = 2
     finally:
         runner.close()
-    return Result(code, lines, cloud, prompts)
+    return Result(code, lines, cloud, prompts, first_ask[0] if first_ask else None)
 
 
 # ---------------------------------------------------------------------------- AWS
@@ -210,7 +217,8 @@ def test_aws_dry_run_reads_but_changes_nothing() -> None:
     assert result.cloud.changes() == []
     assert result.prompts == []
     assert "Create IAM role CloudBridgeDeploy for CloudBridge" in result.output
-    assert "Dry run: not changed." in result.output
+    assert "Saves this inline policy, named CloudBridge" in result.output
+    assert "Dry run finished: nothing was changed." in result.output
 
 
 def test_aws_app_runner_creates_the_role_and_service_roles_after_approval() -> None:
@@ -237,9 +245,32 @@ def test_aws_app_runner_creates_the_role_and_service_roles_after_approval() -> N
     assert [(c.opt("--role-name"), c.opt("--policy-arn")) for c in attached] == [
         ("CloudBridgeAppRunnerECRAccess", "arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess")
     ]
-    # One question per step, and nothing that creates a long-lived credential.
-    assert len(result.prompts) == 5
+    # One question for the whole plan, and nothing that creates a long-lived credential.
+    assert len(result.prompts) == 1
     assert not [c for c in result.cloud.calls if "access-key" in c.key or "login-profile" in c.key]
+
+
+def test_aws_one_question_comes_after_every_step_and_its_details() -> None:
+    result = run(AWS_ARGS, aws_cloud())
+
+    [prompt] = result.prompts
+    assert "Make these 5 changes?" in prompt
+    seen = result.before_first_question or ""
+    assert "Only arn:aws:iam::999999999999:role/cloudbridge-api may assume it" in seen
+    assert "iam:PassRole on arn:aws:iam::123456789012:role/CloudBridgeAppRunnerECRAccess" in seen
+    assert "Trusted by codebuild.amazonaws.com only" in seen
+    assert "[1/5]" not in seen  # no step started before the answer
+
+
+def test_aws_step_by_step_asks_before_each_step() -> None:
+    result = run(AWS_ARGS, aws_cloud(), answers=["s", "y", "y", "n", "y", "y"])
+
+    assert len(result.prompts) == 6
+    assert [p.strip() for p in result.prompts[1:]] == ["Do this step? [y/n/q]"] * 5
+    created = {c.opt("--role-name") for c in result.cloud.ran("aws iam create-role")}
+    assert "CloudBridgeAppRunnerECRAccess" not in created
+    assert {"CloudBridgeDeploy", "CloudBridgeAppRunnerInstance", "CloudBridgeCodeBuild"} <= created
+    assert result.code == 1
 
 
 def test_aws_connection_policy_is_scoped() -> None:
@@ -390,7 +421,7 @@ def test_aws_role_with_same_name_on_another_path_is_refused() -> None:
 
 
 def test_aws_declined_step_blocks_the_steps_that_need_it() -> None:
-    result = run(AWS_ARGS, aws_cloud(), answers=["n", "y", "y", "y"])
+    result = run(AWS_ARGS, aws_cloud(), answers=["s", "n", "y", "y", "y"])
 
     assert result.code == 1
     assert "CloudBridge cannot connect until this is done" in result.output
@@ -598,8 +629,9 @@ def test_azure_dry_run_changes_nothing() -> None:
 
 
 def test_azure_skipping_the_group_blocks_what_needs_it() -> None:
-    # register: y, group: n, env (blocked), app: y, federate: y, grant group (blocked), logs (blocked), identity (blocked)
-    result = run(AZURE_ARGS, azure_cloud(), answers=["y", "n", "y", "y"])
+    # step by step; register: y, group: n, env (blocked), app: y, federate: y, grant group (blocked),
+    # logs (blocked), identity (blocked)
+    result = run(AZURE_ARGS, azure_cloud(), answers=["s", "y", "n", "y", "y"])
 
     assert result.cloud.ran("az containerapp env create") == []
     assert assignments(result.cloud) == []

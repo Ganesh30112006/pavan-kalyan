@@ -217,11 +217,15 @@ function SetupInstructions({ connection }: { connection: ProviderConnection }) {
   );
 }
 
-function SetupSteps({ connection }: { connection: ProviderConnection }) {
+/** `validate` is a button that starts validation, shown where the script's steps end (null without permission). */
+function SetupSteps({ connection, validate }: { connection: ProviderConnection; validate: ReactNode }) {
   const command = connectionCommand(connection);
   if (!command) return <SetupInstructions connection={connection} />;
   const aws = connection.provider === 'aws_app_runner' || connection.provider === 'aws_ecs_express';
   const oidc = connection.provider === 'kubernetes' && connection.config.kubernetes_auth === 'oidc';
+  const then = oidc
+    ? 'Add the authentication configuration it prints to the API server, then validate the connection.'
+    : 'When the script says “All set”, validate the connection.';
   return (
     <div className="stack">
       <h3 className="setup-subheading">With the setup script</h3>
@@ -236,9 +240,14 @@ function SetupSteps({ connection }: { connection: ProviderConnection }) {
           ) : undefined
         }
         after={
-          oidc
-            ? 'Add the authentication configuration it prints to the API server, then select “Validate connection”.'
-            : 'Select “Validate connection” at the top of this page.'
+          validate ? (
+            <div className="stack">
+              <span>{then}</span>
+              <div>{validate}</div>
+            </div>
+          ) : (
+            then
+          )
         }
       />
       <h3 className="setup-subheading">Or by hand</h3>
@@ -555,7 +564,23 @@ export function ProviderConnectionPage() {
         </Panel>
         {showSetup && (
           <Panel title="Setup steps">
-            <SetupSteps connection={c} />
+            <SetupSteps
+              connection={c}
+              validate={
+                canManage ? (
+                  <Button
+                    variant="primary"
+                    icon={<ShieldCheck size={16} aria-hidden="true" />}
+                    onClick={startValidation}
+                    loading={validate.isPending}
+                    loadingLabel="Connecting…"
+                    disabled={validating}
+                  >
+                    Validate now
+                  </Button>
+                ) : null
+              }
+            />
           </Panel>
         )}
       </div>
