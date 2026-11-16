@@ -188,8 +188,10 @@ Root cannot assume roles, and the safety classifier blocks creating access keys.
   owner was offered optional log-group cleanup, not yet decided.
 - Azure and GCP built images are not removed on app delete. Domains tab never exercised live.
 - GCP adapter never live-tested (by rule).
-- Launch Stack: both templates pass `aws cloudformation validate-template`, but no stack has been created live yet
-  (needs a temporary S3 bucket; the auto-mode classifier blocked creating it on 2026-11-16, so ask the user).
+- Launch Stack passed live on 2026-11-16 (App Runner template in a private S3 bucket, stack created with exactly
+  the link's template URL and parameters, CREATE_COMPLETE, then Connected on the first validation; all deleted).
+  The console's quick-create page itself was not clicked (needs the root console sign-in); the ECS template
+  only passed `validate-template`.
 
 ## 8. Environment traps (Windows + Git Bash + PowerShell)
 
