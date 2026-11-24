@@ -52,7 +52,7 @@ backend/               FastAPI + SQLAlchemy 2 + Alembic (SQLite dev, PostgreSQL 
                        capabilities.py, images.py
   app/worker/          deployment state machine (deployments.py), validation, deletion, health, schedules, alerts
   app/services/        specs validation, idempotency, rate limit, audit, costs, cloudbridge.yaml, alerts
-  tests/               330 tests; botocore Stubber / httpx MockTransport; no network (plus API fuzzing,
+  tests/               332 tests; botocore Stubber / httpx MockTransport; no network (plus API fuzzing,
                        hypothesis properties, cross-org/viewer sweeps over every route)
 cli/cloudbridge.py     Stdlib-only CLI + GitHub Action (cli/action.yml), uses API tokens
 docs/                  api-contract.md (source of truth for every response shape), security.md, deployment.md (operators)
@@ -147,7 +147,7 @@ Local run: backend on `localhost:8000` (`uvicorn app.main:create_app --factory`)
 non-interactive). Demo UI without backend: `npm run dev:demo` (in-memory, page reload logs out; navigate
 with history.pushState in Playwright to keep the session).
 
-Current baseline (2026-11-25): backend 330 tests (312 of them also green on PostgreSQL 16 on 2026-11-24), frontend 276 tests, all
+Current baseline (2026-11-25): backend 332 tests (312 of them also green on PostgreSQL 16 on 2026-11-24), frontend 278 tests, all
 lint/type/build checks clean, `npm audit` 0. PostgreSQL run: start a throwaway `postgres:16-alpine` container and
 set `CLOUDBRIDGE_TEST_DATABASE_URL=postgresql+psycopg://...` (each test resets the schema; CI job `backend-postgres`).
 Fuzz deeper locally with `CLOUDBRIDGE_FUZZ_ROUNDS=40 CLOUDBRIDGE_FUZZ_SEED=<n>`.
@@ -167,7 +167,13 @@ Live results so far: App Runner, ECS Express, Azure Container Apps and AKS all p
 (earlier sessions); on 2026-10-18 the setup script + connect + validate + App Runner deploy + delete
 passed on the real AWS account. On 2026-11-16 the shorter AWS connect flow (role ARN filled from the
 account ID, one-paste `curl … && python3 …` command, a single confirmation for the whole plan, "Validate now" under
-the script step) passed live: Connected on the first validation; everything cleaned. Shared report artifact: https://claude.ai/artifact/718QogzEMgpRuzs2shY9xg
+the script step) passed live: Connected on the first validation; everything cleaned.
+On 2026-11-25 (unattended, user asleep): App Runner + ECS connections Connected first time; the sample app
+("Use the sample app" → `examples/hello-web`, built by CodeBuild) ran on ECS Express; config change → r2, rollback,
+pause/resume, logs, metrics, API token + CLI `apply`/`deploy --wait`, image source, staging → production promotion
+with approval (same digest), deletes; all cleaned. **App Runner now refuses new services in this account** ("Account …
+can't create new App Runner services"); use ECS Express. Two bugs found and fixed: that error now suggests ECS Express,
+and deleting an app whose only deployment failed before the service existed skipped the ECR/CodeBuild cleanup. Shared report artifact: https://claude.ai/artifact/718QogzEMgpRuzs2shY9xg
 
 ### Running a live AWS test (keyless recipe that works)
 
@@ -193,6 +199,9 @@ Root cannot assume roles, and the safety classifier blocks creating access keys.
   owner was offered optional log-group cleanup, not yet decided.
 - Azure and GCP built images are not removed on app delete. Domains tab never exercised live.
 - GCP adapter never live-tested (by rule).
+- ECS Express app deletion leaves the task-definition family (`default-<app>`) and `/aws/ecs/default/<app>-*` log
+  groups, plus CodeBuild log groups; the live test removed them by hand. The ECS "service deleted outside
+  CloudBridge" fix is unit-tested only: the auto-mode classifier blocked deleting the service by hand.
 - Launch Stack passed live on 2026-11-16 (App Runner template in a private S3 bucket, stack created with exactly
   the link's template URL and parameters, CREATE_COMPLETE, then Connected on the first validation; all deleted).
   The ECS template passed the same way (CREATE_COMPLETE, Connected). The console's quick-create page itself was

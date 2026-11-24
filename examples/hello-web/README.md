@@ -12,7 +12,11 @@ Run locally: `python server.py`, then open http://localhost:8080 (`PORT` changes
 
 ## Deploy with CloudBridge
 
-Create an application with:
+The quickest way: **Applications → Create application → Use the sample app**. It fills in everything below;
+you only choose the provider connection and region. Every CloudBridge user can do this to try a provider
+end to end (build in your cloud, deploy, health check, logs, delete).
+
+Or create an application by hand with:
 
 - **Source:** Git repository, the repository URL, branch `main`, **Dockerfile path**
   `examples/hello-web/Dockerfile`, **build context** `examples/hello-web`

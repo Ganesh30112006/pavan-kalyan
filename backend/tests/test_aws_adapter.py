@@ -679,3 +679,19 @@ def test_fresh_service_linked_role_is_retried() -> None:
     )
     mapped = translate(error)
     assert mapped.retryable and mapped.code == "provider_unavailable"
+
+
+def test_app_runner_closed_to_new_services_suggests_ecs_express() -> None:
+    # Seen live on 2026-11-25: the build succeeded, then CreateService was refused for the whole account.
+    error = ClientError(
+        {
+            "Error": {
+                "Code": "InvalidRequestException",
+                "Message": "Account 492462083767 can't create new App Runner services.",
+            }
+        },
+        "CreateService",
+    )
+    mapped = translate(error)
+    assert mapped.code == "invalid_request" and not mapped.retryable
+    assert "does not accept new services" in mapped.message and "ECS Express Mode" in mapped.message

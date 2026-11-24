@@ -46,8 +46,10 @@ def request_delete(
         if app.delete_requested_at is not None or app.deleted_at is not None:
             return "deleting"
         return "busy"
-    if app.provider_service_id is None:
-        # Nothing exists on the provider: remove it now.
+    if app.provider_service_id is None and app.latest_deployment_id is None:
+        # Never deployed, so nothing exists on the provider: remove it now. A deployment that failed before the
+        # service existed may still have built an image (registry repository, build project), so any
+        # application that was ever deployed goes through the worker, which cleans those up.
         app.delete_requested_at = None
         app.deleted_at = now
         app.status = "deleting"

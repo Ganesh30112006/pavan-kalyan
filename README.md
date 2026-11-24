@@ -164,6 +164,7 @@ This loads `.env.demo` (`VITE_DEMO_MODE=true`) and serves simulated data:
 | `VITE_API_BASE_URL` | empty (same origin) | Backend base URL, e.g. `http://localhost:8000` in development. Leave empty in production when `/api/` is proxied on the same origin. |
 | `VITE_DEMO_MODE`    | `false` | Development-only simulated backend (see above). |
 | `VITE_SUPPORT_URL`  | empty   | Optional `https://` link shown on error pages as "Contact support". |
+| `VITE_SAMPLE_APP_REPOSITORY` | this project's GitHub repository | Public `https://` repository containing `examples/hello-web`, used by **Use the sample app** on the create-application form (point it at your fork or mirror). |
 
 All `VITE_*` values are compiled into public JavaScript. **Never put secrets in
 them.**

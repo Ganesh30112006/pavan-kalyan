@@ -25,7 +25,7 @@ import { useUnsavedChanges } from '../../hooks/useUnsavedChanges';
 import { APPLICATION_TYPES, RUNTIME_TYPES } from '../../services/api/decoders';
 import type { CreateApplicationRequest, ProviderCapabilities, ProviderConnection, ProviderKind } from '../../types/api';
 import { capabilityFindings } from '../../utils/capabilities';
-import { validateRows, type EnvRow, type SecretRow } from '../../utils/environment';
+import { toEnvRows, validateRows, type EnvRow, type SecretRow } from '../../utils/environment';
 import {
   applicationTypeDescription,
   applicationTypeLabel,
@@ -52,6 +52,7 @@ import {
   type WizardValues,
 } from './create/wizardModel';
 import { CostPreview } from './create/CostPreview';
+import { SAMPLE_ENVIRONMENT, sampleValues } from './create/sampleApp';
 import './applications.css';
 
 /** "512Mi" → 0.5, "2Gi" → 2, "0.25" → 0.25: lets option lists from several providers be merged in order. */
@@ -99,6 +100,7 @@ function CreateApplicationForm({
   const [env, setEnv] = useState<EnvRow[]>([]);
   const [secrets, setSecrets] = useState<SecretRow[]>([]);
   const [rowServerErrors, setRowServerErrors] = useState<Record<string, string>>({});
+  const [sampleFilled, setSampleFilled] = useState(false);
 
   const initial = useMemo((): WizardValues => {
     const usable = connections.filter((c) => c.status === 'connected');
@@ -216,6 +218,19 @@ function CreateApplicationForm({
     form.setValue('region', only?.default_region ?? '');
   };
 
+  /** Fills every step except the target with the sample application, so a new user can deploy it right away. */
+  const fillSample = () => {
+    for (const [name, value] of Object.entries(sampleValues()) as Array<[WizardField, string | undefined]>) {
+      if (value !== undefined) form.setValue(name, value);
+    }
+    setShape({ source_type: 'repository', ref_type: 'branch' });
+    setEnv(toEnvRows(SAMPLE_ENVIRONMENT.map((v) => ({ ...v }))));
+    setSecrets([]);
+    setRowServerErrors({});
+    setUnmatched([]);
+    setSampleFilled(true);
+  };
+
   const setConnection = (id: string) => {
     form.setValue('connection_id', id);
     const conn = connections.find((c) => c.id === id);
@@ -266,6 +281,21 @@ function CreateApplicationForm({
       <Panel title={`Step ${step + 1} of ${STEPS.length}: ${STEPS[step]?.title}`}>
         {step === 0 && (
           <div className="form">
+            <Alert
+              tone="info"
+              title="Trying CloudBridge?"
+              actions={
+                <Button size="sm" onClick={fillSample} disabled={create.isPending}>
+                  Use the sample app
+                </Button>
+              }
+            >
+              The sample is a small web server from the CloudBridge repository (<code>examples/hello-web</code>). It is built
+              in your cloud account, runs at the smallest size, and can be deleted again from its page.
+            </Alert>
+            <p className="field__hint" role="status">
+              {sampleFilled ? 'Sample app filled in. Check each step, choose where to deploy it, then create it.' : ''}
+            </p>
             <div className="form-grid">
               <TextField
                 label="Application name"
@@ -794,7 +824,7 @@ export function CreateApplicationPage() {
               title="Connect a provider first"
               message={
                 connections.data.length === 0
-                  ? 'Applications are deployed through a provider connection. Add an AWS App Runner or Google Cloud Run connection to continue.'
+                  ? 'Applications are deployed through a provider connection. Connect a provider to continue.'
                   : 'None of your provider connections are validated. Validate a connection to continue.'
               }
               actions={

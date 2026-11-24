@@ -187,6 +187,14 @@ def translate(error: Exception, *, assuming_role: bool = False) -> ProviderError
             return ProviderError("quota_exceeded", safe_message(raw, "An AWS service quota was reached."))
         if code == "ResourceNotFoundException":
             return ProviderError("not_found", safe_message(raw, "The AWS resource was not found."))
+        # Seen live (2026-11-25): accounts App Runner no longer onboards get "Account N can't create new App Runner
+        # services." Existing services keep working; new ones need another provider.
+        if "create new app runner services" in raw.lower():
+            return ProviderError(
+                "invalid_request",
+                "AWS App Runner does not accept new services in this AWS account. "
+                "Deploy through an AWS ECS Express Mode connection instead.",
+            )
         return ProviderError("invalid_request", safe_message(raw, "AWS rejected the request."))
     if isinstance(error, BotoCoreError):
         return ProviderError("provider_unavailable", "AWS could not be reached.", retryable=True)

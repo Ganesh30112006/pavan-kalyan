@@ -218,6 +218,50 @@ describe('create application', () => {
     expect(await screen.findByText('Application created')).toBeInTheDocument();
   });
 
+  it('fills in the sample app, which can then be created with only a target chosen', async () => {
+    const api = createFakeApi();
+    api.applications.create.mockResolvedValue((await import('./helpers/fixtures')).makeApp({ id: 'app-sample', name: 'hello-web' }));
+    const { user, router } = renderApp('/applications/new', api);
+    await user.click(await screen.findByRole('button', { name: 'Use the sample app' }));
+    expect(screen.getByText(/Sample app filled in/)).toHaveAttribute('role', 'status');
+    expect(screen.getByLabelText(/Application name/)).toHaveValue('hello-web');
+    for (let i = 0; i < 6; i++) await next(user);
+    await screen.findByText('Step 7 of 7: Review');
+    await user.click(screen.getByRole('button', { name: 'Create application' }));
+    await waitFor(() => expect(api.applications.create).toHaveBeenCalledTimes(1));
+    expect(api.applications.create.mock.calls[0]?.[0]).toMatchObject({
+      name: 'hello-web',
+      runtime: 'python',
+      port: 8080,
+      health_check_path: '/healthz',
+      cpu: '0.25',
+      memory: '512Mi',
+      min_instances: 1,
+      max_instances: 1,
+      connection_id: 'conn-1',
+      source: {
+        type: 'repository',
+        repository_url: 'https://github.com/Ganesh30112006/pavan-kalyan.git',
+        ref_type: 'branch',
+        git_ref: 'main',
+        dockerfile_path: 'examples/hello-web/Dockerfile',
+        build_context: 'examples/hello-web',
+      },
+      environment: [{ name: 'APP_VERSION', value: '1.0.0' }],
+    });
+    await waitFor(() => expect(router.state.location.pathname).toBe('/applications/app-sample'));
+  });
+
+  it('only uses an https sample repository without credentials from the build configuration', async () => {
+    const { DEFAULT_SAMPLE_REPOSITORY, sampleRepository } = await import('../src/pages/applications/create/sampleApp');
+    expect(sampleRepository(undefined)).toBe(DEFAULT_SAMPLE_REPOSITORY);
+    expect(sampleRepository('  ')).toBe(DEFAULT_SAMPLE_REPOSITORY);
+    expect(sampleRepository('https://git.example.com/fork/cloudbridge.git')).toBe('https://git.example.com/fork/cloudbridge.git');
+    expect(sampleRepository('http://git.example.com/fork.git')).toBe(DEFAULT_SAMPLE_REPOSITORY);
+    expect(sampleRepository('https://user:token@git.example.com/fork.git')).toBe(DEFAULT_SAMPLE_REPOSITORY);
+    expect(sampleRepository('not a url')).toBe(DEFAULT_SAMPLE_REPOSITORY);
+  });
+
   it('lets the user edit an earlier step from the review', async () => {
     const { user } = renderApp('/applications/new');
     await fillToReview(user);

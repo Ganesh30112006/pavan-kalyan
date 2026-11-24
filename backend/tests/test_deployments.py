@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
+import pytest
 
 from app.providers.base import ProviderError
 from tests.conftest import ApiClient, Env, image_app, repo_source
@@ -263,6 +264,30 @@ def test_deleting_a_deployed_application(env: Env, owner: ApiClient) -> None:
     assert owner.get(f"/apps/{app['id']}").status_code == 404
     history = owner.get("/deployments").json()
     assert history["total"] == 1  # history survives the application
+
+
+def test_deleting_an_application_whose_only_deployment_failed_cleans_up_on_the_provider(
+    env: Env, owner: ApiClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Seen live on 2026-11-25: the image was built (ECR repository, CodeBuild project) but App Runner refused
+    # to create the service. The application never got a service, yet its build resources exist; deleting it
+    # must still go through the provider so they are removed.
+    app = create_app(env, owner)
+
+    def refuse(*_: object) -> dict[str, Any]:
+        raise ProviderError("invalid_request", "Account 1 can't create new App Runner services.")
+
+    monkeypatch.setattr(env.aws, "start_rollout", refuse)
+    failed = run_until_done(env, owner, deploy(owner, app["id"])["id"])
+    assert failed["status"] == "failed"
+    response = owner.delete(f"/apps/{app['id']}")
+    assert response.status_code == 202
+    env.run_worker(3)
+    assert [name for name, _ in env.aws.calls if name in ("start_delete", "poll_delete")] == [
+        "start_delete",
+        "poll_delete",
+    ]
+    assert owner.get(f"/apps/{app['id']}").status_code == 404
 
 
 def test_viewer_cannot_deploy_or_roll_back(env: Env, owner: ApiClient) -> None:
