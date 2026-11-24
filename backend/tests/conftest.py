@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,12 +21,15 @@ from app.worker import Worker
 from tests.fakes import FakeAdapter
 
 PASSWORD = "correct horse battery staple"
+TEST_DATABASE_URL = os.environ.get("CLOUDBRIDGE_TEST_DATABASE_URL")
+"""Run the suite against another database (e.g. PostgreSQL, as in production); each test starts from an empty
+schema. Without it every test gets its own SQLite file."""
 
 
 def make_settings(tmp_path: Path, **overrides: Any) -> Settings:
     values: dict[str, Any] = {
         "environment": "test",
-        "database_url": f"sqlite:///{(tmp_path / 'test.db').as_posix()}",
+        "database_url": TEST_DATABASE_URL or f"sqlite:///{(tmp_path / 'test.db').as_posix()}",
         "cookie_secure": False,
         "run_worker": False,
         "aws_principal_arn": "arn:aws:iam::999999999999:role/cloudbridge-worker",
@@ -154,10 +158,20 @@ class Env:
             self.worker.run_once()
 
 
+def reset_schema(database: Database) -> None:
+    from sqlalchemy import text
+
+    Base.metadata.drop_all(database.engine)
+    with database.engine.begin() as connection:
+        connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+
+
 @pytest.fixture
 def env(tmp_path: Path) -> Iterator[Env]:
     settings = make_settings(tmp_path)
     database = Database(settings.database_url)
+    if TEST_DATABASE_URL:
+        reset_schema(database)
     Base.metadata.create_all(database.engine)
     aws, gcp = FakeAdapter("aws_app_runner"), FakeAdapter("gcp_cloud_run", min_floor=0)
     registry = ProviderRegistry({"aws_app_runner": aws, "gcp_cloud_run": gcp})

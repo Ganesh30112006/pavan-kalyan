@@ -77,8 +77,8 @@ class Requested:
             concurrency=data.get("concurrency"),
             exposure=str(data["exposure"]),
             health_check_path=data.get("health_check_path"),
-            environment=[dict(e) for e in data.get("environment", [])],
-            secret_refs=[dict(s) for s in data.get("secret_refs", [])],
+            environment=[dict(e) for e in (data.get("environment") or [])],
+            secret_refs=[dict(s) for s in (data.get("secret_refs") or [])],
         )
 
 

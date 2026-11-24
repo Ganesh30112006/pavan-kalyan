@@ -115,8 +115,8 @@ class SpecInfo:
             concurrency=None if data.get("concurrency") is None else int(data["concurrency"]),
             exposure=str(data["exposure"]),
             health_check_path=data.get("health_check_path"),
-            environment=[(str(e["name"]), str(e["value"])) for e in data.get("environment", [])],
-            secret_refs=[(str(s["name"]), str(s["reference"])) for s in data.get("secret_refs", [])],
+            environment=[(str(e["name"]), str(e["value"])) for e in (data.get("environment") or [])],
+            secret_refs=[(str(s["name"]), str(s["reference"])) for s in (data.get("secret_refs") or [])],
         )
 
 

@@ -179,6 +179,23 @@ describe('http client', () => {
     expect(error.retryAfterSeconds).toBe(120);
   });
 
+  it('does not wait out a long Retry-After on a 503 read', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 503, headers: { 'retry-after': '3600' } }));
+    const error = await rejection(client(fetchImpl).request({ path: '/x' }, thing));
+    expect(error.status).toBe(503);
+    expect(error.retryAfterSeconds).toBe(3600);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('still retries a 503 read with a short Retry-After', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 503, headers: { 'retry-after': '0' } }))
+      .mockResolvedValueOnce(json({ id: 'b' }));
+    expect(await client(fetchImpl).request({ path: '/x' }, thing)).toEqual({ id: 'b' });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it('returns the status of body-less writes', async () => {
     const fetchImpl = vi.fn(async () => new Response(null, { status: 202 }));
     expect(await client(fetchImpl).send({ method: 'DELETE', path: '/x' })).toBe(202);

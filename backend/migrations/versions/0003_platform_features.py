@@ -19,10 +19,13 @@ down_revision: str | None = "0002"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-FALSE = sa.text("0")
+def _false() -> sa.TextClause:
+    """A boolean false default: PostgreSQL refuses `DEFAULT 0` for a boolean column, older SQLite lacks `false`."""
+    return sa.text("0" if op.get_bind().dialect.name == "sqlite" else "false")
 
 
 def upgrade() -> None:
+    FALSE = _false()  # noqa: N806 - reads like the SQL literal it is
     with op.batch_alter_table("provider_connections", schema=None) as batch_op:
         batch_op.add_column(sa.Column("ecs_cluster", sa.String(length=255), nullable=True))
         batch_op.add_column(sa.Column("api_server", sa.String(length=512), nullable=True))

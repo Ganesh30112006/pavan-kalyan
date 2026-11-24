@@ -10,13 +10,18 @@ from alembic.config import Config
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine
 
-from app.db import Base
+from app.db import Base, Database
+from tests.conftest import TEST_DATABASE_URL, reset_schema
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_migration_matches_models(tmp_path: Path) -> None:
-    url = f"sqlite:///{(tmp_path / 'migrated.db').as_posix()}"
+    url = TEST_DATABASE_URL or f"sqlite:///{(tmp_path / 'migrated.db').as_posix()}"
+    if TEST_DATABASE_URL:
+        database = Database(url)
+        reset_schema(database)
+        database.dispose()
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
     config.set_main_option("sqlalchemy.url", url)

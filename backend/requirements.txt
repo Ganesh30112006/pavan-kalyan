@@ -15,3 +15,5 @@ httpx==0.28.1
 PyYAML==6.0.3
 # PostgreSQL driver (CLOUDBRIDGE_DATABASE_URL=postgresql+psycopg://...)
 psycopg[binary]==3.3.6
+# IANA time zones for sleep schedules and user time zones (zoneinfo), also where the OS has none.
+tzdata==2026.5

@@ -56,8 +56,8 @@ Interactive API docs: http://localhost:8000/api/v1/docs (disabled in production 
 | `python -m app.cli create-user --email … --name … --role owner\|admin\|developer\|viewer (--new-organization NAME \| --organization-id ID)` | Create a user (password is prompted, or read from `CLOUDBRIDGE_BOOTSTRAP_PASSWORD`) |
 | `python -m app.cli set-password --email …` | Reset a password |
 | `uvicorn app.main:create_app --factory` | Run the API (with the worker, unless `CLOUDBRIDGE_RUN_WORKER=false`) |
-| `python -m app.worker` | Run the worker as a separate process |
-| `pytest` | Tests (201) |
+| `python -m app.worker` | Run the worker as a separate process (exits with status 1 if its loop stops, so a supervisor restarts it) |
+| `pytest` | Tests (330); `CLOUDBRIDGE_TEST_DATABASE_URL=postgresql+psycopg://…` runs them on PostgreSQL |
 | `ruff check app tests && ruff format --check app tests` | Lint and formatting |
 | `mypy app tests` | Strict type checking |
 
@@ -67,11 +67,12 @@ All settings are `CLOUDBRIDGE_*` environment variables (see `app/config.py` and 
 
 | Variable | Default | Purpose |
 | -------- | ------- | ------- |
-| `ENVIRONMENT` | `development` | `production` enforces secure cookies and hides API docs |
+| `ENVIRONMENT` | `development` | `production` refuses SQLite, insecure cookies, a non-https `PUBLIC_URL` and private alert URLs, and hides API docs |
 | `DATABASE_URL` | `sqlite:///./cloudbridge.db` | e.g. `postgresql+psycopg://user:pass@host/db` |
 | `CORS_ORIGINS` | empty | Comma-separated frontend origins, only when the API is on another origin |
 | `COOKIE_SECURE` | `true` | Set `false` only for plain-HTTP localhost |
 | `RUN_WORKER` | `true` | Run the worker inside the API process |
+| `TRUST_PROXY_HEADERS` | `false` | Set `true` behind a reverse proxy (e.g. `deploy/nginx.conf`) so sign-in rate limits use the client's address from `X-Forwarded-For`; otherwise every user shares the proxy's address and failed sign-ins from anyone can lock everyone out for a few minutes. Never set it without a proxy that appends to that header |
 | `AWS_PRINCIPAL_ARN` | empty | CloudBridge's own AWS role, shown to users as the principal to trust |
 | `AWS_REGIONS` / `GCP_REGIONS` / `AZURE_REGIONS` | see config | Regions offered and accepted |
 | `GCP_SUBJECT_TOKEN_SOURCE` | `none` | `aws` (use CloudBridge's AWS identity) or `file` (OIDC token file) |
@@ -84,7 +85,9 @@ All settings are `CLOUDBRIDGE_*` environment variables (see `app/config.py` and 
 | `ALLOW_PRIVATE_ALERT_URLS` | `false` | Development only (refused in production): allow alert webhooks on private addresses |
 | `PUBLIC_URL` | empty | Links in e-mails and alerts |
 | `SMTP_HOST`, `SMTP_FROM`, … | empty | E-mail notifications; notification settings appear only when set |
-| `MAINTENANCE_MODE` | `false` | Answer every API call with 503 `maintenance` |
+| `MAINTENANCE_MODE` | `false` | Answer every API call with 503 `maintenance` (the `/health` and `/ready` probes still answer) |
+| `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `text` | `json` writes one JSON object per line, with `request_id` on request logs |
+| `MAX_BODY_BYTES` / `MAX_WEBHOOK_BODY_BYTES` | 1 MB / 25 MB | Request body limits; the larger one applies to GitHub webhooks only |
 
 ## Cloud setup
 

@@ -203,7 +203,14 @@ class KubernetesAdapter(ExtrasNotSupported):
         if 200 <= status < 300:
             if text:
                 return response.text
-            return response.json() if response.content else {}
+            if not response.content:
+                return {}
+            try:
+                return response.json()
+            except ValueError:
+                raise ProviderError(
+                    "provider_unavailable", "The cluster's API server returned an unreadable response.", retryable=True
+                ) from None
         if status == 404 and allow_404:
             return None
         raise self._error(response)
@@ -214,7 +221,7 @@ class KubernetesAdapter(ExtrasNotSupported):
             body = response.json()
         except ValueError:
             body = {}
-        raw = str(body.get("message", "")) if isinstance(body, dict) else ""
+        raw = str(body.get("message") or "") if isinstance(body, dict) else ""
         if status == 401:
             return ProviderError("invalid_credentials", "The cluster rejected CloudBridge's token.")
         if status == 403:
@@ -380,9 +387,10 @@ class KubernetesAdapter(ExtrasNotSupported):
         if response.status_code in (401, 403):
             raise ProviderError("image_access_denied", "CloudBridge is not allowed to read this registry (AcrPull).")
         try:
-            refresh = response.json().get("refresh_token")
+            data = response.json()
         except ValueError:
-            refresh = None
+            data = None
+        refresh = data.get("refresh_token") if isinstance(data, dict) else None
         if response.status_code != 200 or not isinstance(refresh, str):
             raise ProviderError("provider_unavailable", "The container registry did not issue a token.", retryable=True)
         return refresh
@@ -671,7 +679,7 @@ class KubernetesAdapter(ExtrasNotSupported):
         entries: list[RuntimeLogEntry] = []
         since = str(int(dt.timedelta(hours=1).total_seconds()))
         for pod in self._pods(conn, app.name)[:5]:
-            pod_name = quote(str((pod.get("metadata") or {}).get("name", "")), safe="")
+            pod_name = quote(str((pod.get("metadata") or {}).get("name") or ""), safe="")
             text = self._request(
                 conn,
                 "GET",

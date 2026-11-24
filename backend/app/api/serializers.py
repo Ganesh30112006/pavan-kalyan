@@ -324,7 +324,7 @@ def connection_out(conn: ProviderConnection, settings: Settings) -> ConnectionOu
             finished_at=_time(v.get("finished_at")),
             checks=[
                 ValidationCheckOut(name=c["name"], status=c["status"], detail=c.get("detail"))
-                for c in v.get("checks", [])
+                for c in (v.get("checks") or [])
             ],
             error_code=v.get("error_code"),
         )

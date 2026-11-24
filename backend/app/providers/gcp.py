@@ -193,7 +193,14 @@ class GcpCloudRunAdapter(ExtrasNotSupported):
             raise ProviderError("timed_out", "Google Cloud did not respond in time.", retryable=True) from None
         status = int(response.status_code)
         if 200 <= status < 300:
-            return response.json() if response.content else {}
+            if not response.content:
+                return {}
+            try:
+                return response.json()
+            except ValueError:
+                raise ProviderError(
+                    "provider_unavailable", "Google Cloud returned an unreadable response.", retryable=True
+                ) from None
         if status == 404 and allow_404:
             return None
         raise self._error(response)
@@ -201,12 +208,13 @@ class GcpCloudRunAdapter(ExtrasNotSupported):
     def _error(self, response: Any) -> ProviderError:
         status = int(response.status_code)
         try:
-            body = response.json().get("error") or {}
+            data = response.json()
         except ValueError:
-            body = {}
-        raw = str(body.get("message", "")) if isinstance(body, dict) else ""
+            data = None
+        body = (data.get("error") or {}) if isinstance(data, dict) else {}
+        raw = str(body.get("message") or "") if isinstance(body, dict) else ""
         reasons = {
-            str(d.get("reason", ""))
+            str(d.get("reason") or "")
             for d in ((body.get("details") or []) if isinstance(body, dict) else [])
             if isinstance(d, dict)
         }
@@ -480,7 +488,7 @@ class GcpCloudRunAdapter(ExtrasNotSupported):
             if not operation.get("done"):
                 return RolloutStatus(state="running", service_id=name)
             if operation.get("error"):
-                raw = str(operation["error"].get("message", ""))
+                raw = str(operation["error"].get("message") or "")
                 return RolloutStatus(
                     state="failed",
                     service_id=name,
@@ -537,13 +545,15 @@ class GcpCloudRunAdapter(ExtrasNotSupported):
         scaling = template.get("scaling") or {}
         probe = (container.get("startupProbe") or {}).get("httpGet") or {}
         return EffectiveConfig(
-            port=int(ports[0].get("containerPort", 8080)),
-            cpu=str(limits.get("cpu", "1")),
-            memory=str(limits.get("memory", "512Mi")),
-            min_instances=int(scaling.get("minInstanceCount", 0)),
-            max_instances=int(scaling.get("maxInstanceCount", 100)),
-            concurrency=int(template.get("maxInstanceRequestConcurrency", CLOUD_RUN_DEFAULT_CONCURRENCY)),
-            exposure="public" if service.get("ingress", "INGRESS_TRAFFIC_ALL") == "INGRESS_TRAFFIC_ALL" else "private",
+            port=int(ports[0].get("containerPort") or 8080),
+            cpu=str(limits.get("cpu") or "1"),
+            memory=str(limits.get("memory") or "512Mi"),
+            min_instances=int(scaling.get("minInstanceCount") or 0),
+            max_instances=int(scaling.get("maxInstanceCount") or 100),
+            concurrency=int(template.get("maxInstanceRequestConcurrency") or CLOUD_RUN_DEFAULT_CONCURRENCY),
+            exposure="public"
+            if (service.get("ingress") or "INGRESS_TRAFFIC_ALL") == "INGRESS_TRAFFIC_ALL"
+            else "private",
             health_check_path=probe.get("path"),
         )
 
@@ -606,7 +616,7 @@ class GcpCloudRunAdapter(ExtrasNotSupported):
                 )
             if message is None:
                 continue
-            log_name = str(entry.get("logName", ""))
+            log_name = str(entry.get("logName") or "")
             stream = "stderr" if "stderr" in log_name else "stdout" if "stdout" in log_name else "system"
             entries.append(
                 RuntimeLogEntry(

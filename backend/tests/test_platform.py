@@ -577,3 +577,85 @@ def test_preview_and_app_rows_are_consistent(env: Env, owner: ApiClient) -> None
     with env.database.session() as db:
         row = db.get(Application, app["id"])
         assert row is not None and row.environment == "production" and row.webhook_secret is None
+
+
+# ---------- worker results that race an API change ----------
+
+
+def test_health_check_does_not_overwrite_a_pause_made_meanwhile(env: Env, owner: ApiClient) -> None:
+    from sqlalchemy import update
+
+    from app.providers.base import ServiceState
+
+    app = deployed_app(env, owner)
+    original = env.aws.check_service
+
+    def racing(conn: Any, target: Any) -> ServiceState:
+        env.aws.check_service = original  # type: ignore[method-assign]
+        # The user pauses the application while the health check waits for the provider.
+        assert owner.post(f"/apps/{app['id']}/pause").status_code == 200
+        return ServiceState(running=False, message="Not running.")
+
+    env.aws.check_service = racing  # type: ignore[method-assign,assignment]
+    with env.database.session() as db:
+        db.execute(update(Application).values(health_checked_at=None))
+        db.commit()
+    env.run_worker(1)
+    served = owner.get(f"/apps/{app['id']}").json()
+    assert served["status"] == "stopped" and served["health"] == "unknown"
+
+
+def test_sleep_schedule_does_not_overwrite_a_delete_requested_meanwhile(env: Env, owner: ApiClient) -> None:
+    app = deployed_app(env, owner)
+    now = clock.utcnow()
+    window = {
+        "timezone": "UTC",
+        "days": list(range(7)),
+        "sleep_at": (now - dt.timedelta(minutes=5)).strftime("%H:%M"),
+        "wake_at": (now + dt.timedelta(hours=2)).strftime("%H:%M"),
+    }
+    assert owner.put(f"/apps/{app['id']}/schedule", json=window).json()["asleep_now"] is True
+    original = env.aws.set_paused
+
+    def racing(conn: Any, target: Any, paused: bool) -> None:
+        env.aws.set_paused = original  # type: ignore[method-assign]
+        original(conn, target, paused)
+        # Someone deletes the application while the scheduled pause is being applied.
+        with env.database.session() as db:
+            row = db.get(Application, app["id"])
+            assert row is not None
+            row.status, row.delete_requested_at = "deleting", clock.utcnow()
+            db.commit()
+
+    env.aws.set_paused = racing  # type: ignore[method-assign,assignment]
+    env.worker._last_schedules = None
+    env.worker._run_schedules(clock.utcnow())
+    with env.database.session() as db:
+        row = db.get(Application, app["id"])
+        assert row is not None and row.status == "deleting" and row.paused is False
+
+
+def test_a_step_that_outlived_its_lease_is_not_recorded(env: Env, owner: ApiClient) -> None:
+    from app.models import Deployment
+
+    app = owner.post("/apps", json=image_app(env.add_connection())).json()
+    dep_id = owner.post(f"/apps/{app['id']}/deployments").json()["id"]
+    other = clock.utcnow() + dt.timedelta(hours=1)
+    real_step = env.worker._flow.step
+
+    def slow_step(db: Any, dep: Any) -> float | None:
+        delay = real_step(db, dep)
+        # Meanwhile the lease ran out and another worker process claimed the deployment.
+        with env.database.session() as other_db:
+            row = other_db.get(Deployment, dep_id)
+            assert row is not None
+            row.locked_until = other
+            other_db.commit()
+        return delay
+
+    env.worker._flow.step = slow_step  # type: ignore[method-assign]
+    env.worker._run_deployments()
+    with env.database.session() as db:
+        row = db.get(Deployment, dep_id)
+        assert row is not None
+        assert row.status == "queued" and row.locked_until == other  # the other worker's claim stands

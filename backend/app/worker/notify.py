@@ -130,7 +130,13 @@ class Notifier:
     def _deliver(self, target: tuple[str, str, str, str | None], alert: alerts.Alert) -> None:
         channel_id, kind, url, secret = target
         problem = alerts.url_problem(kind, url, allow_private=self._settings.allow_private_alert_urls)
-        status = f"Not sent: {problem}" if problem else alerts.deliver(kind, url, secret, alert, self._client_factory)
+        status = (
+            f"Not sent: {problem}"
+            if problem
+            else alerts.deliver(
+                kind, url, secret, alert, self._client_factory, allow_private=self._settings.allow_private_alert_urls
+            )
+        )
         if status.startswith("Delivered"):
             logger.info("Alert delivered", extra={"channel_id": channel_id, "event": alert.event})
         else:
@@ -163,7 +169,7 @@ class Notifier:
                     message["Subject"] = f"[CloudBridge] {subject}"
                     message.set_content(body)
                     smtp.send_message(message)
-        except (OSError, smtplib.SMTPException):
+        except (OSError, smtplib.SMTPException, ValueError):  # ValueError: a header the e-mail library refuses
             logger.warning("Could not send notification e-mail")
 
     def close(self) -> None:

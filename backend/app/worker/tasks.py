@@ -50,7 +50,7 @@ def validate_connection(
             conn,
             "timed_out",
             "timed_out",
-            list(dict(conn.validation or {}).get("checks", [])),
+            list(dict(conn.validation or {}).get("checks") or []),
             started,
             actor,
             notifier,
@@ -72,7 +72,7 @@ def validate_connection(
         status, error_code, checks = result.status, result.error_code, _checks(result.checks)
     except ProviderError as error:
         status, error_code = error.connection_status, error.code
-        checks = list(dict(conn.validation or {}).get("checks", []))
+        checks = list(dict(conn.validation or {}).get("checks") or [])
     _finish(db, conn, status, error_code, checks, started, actor, notifier)
 
 

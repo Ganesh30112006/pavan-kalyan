@@ -24,6 +24,16 @@ LOGIN = "https://login.microsoftonline.com"
 ENTRA_AUDIENCE = "api://AzureADTokenExchange"
 _AADSTS = re.compile(r"AADSTS(\d+)")
 
+
+def _seconds(value: object, default: int = 3600) -> int:
+    """A token lifetime from Entra's `expires_in` (a number or numeric string); the default when unusable."""
+    try:
+        seconds = int(float(str(value)))
+    except (ValueError, OverflowError):
+        return default
+    return seconds if seconds > 0 else default
+
+
 TokenSource = Callable[[str], str]
 """Returns CloudBridge's signed identity token for an audience (injected in tests)."""
 
@@ -75,7 +85,7 @@ class FederatedIdentity:
                 Audience=[audience], SigningAlgorithm="RS256", DurationSeconds=300
             )
         except ClientError as error:
-            code = str(error.response.get("Error", {}).get("Code", ""))
+            code = str((error.response.get("Error") or {}).get("Code", ""))
             logger.warning("AWS did not issue a web identity token", extra={"code": code})
             raise ProviderError(
                 "platform_not_configured",
@@ -119,7 +129,7 @@ class FederatedIdentity:
         except ValueError:
             data = {}
         if response.status_code == 200 and isinstance(data, dict) and isinstance(data.get("access_token"), str):
-            expires = int(data.get("expires_in", 3600))
+            expires = _seconds(data.get("expires_in"))
             with self._lock:
                 self._tokens[key] = (str(data["access_token"]), time.monotonic() + expires)
             return str(data["access_token"])

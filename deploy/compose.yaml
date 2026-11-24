@@ -1,0 +1,87 @@
+# CloudBridge on one host with Docker Compose: PostgreSQL, migrations, API, worker and the web app.
+#   cp deploy/cloudbridge.env.example deploy/cloudbridge.env   # then edit it
+#   POSTGRES_PASSWORD=$(openssl rand -hex 24) docker compose -f deploy/compose.yaml up -d --build --wait
+# The web app listens on http://localhost:8080 (CLOUDBRIDGE_HTTP_PORT); put a TLS-terminating load balancer
+# or reverse proxy in front of it. See docs/deployment.md.
+
+name: cloudbridge
+
+x-backend: &backend
+  image: cloudbridge-api:local
+  # Built once by the migrate service; the API and worker run the same image.
+  pull_policy: never
+  env_file: cloudbridge.env
+  environment: &backend-env
+    CLOUDBRIDGE_ENVIRONMENT: production
+    # Hex passwords need no URL escaping; other characters must be percent-encoded here.
+    CLOUDBRIDGE_DATABASE_URL: postgresql+psycopg://cloudbridge:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/cloudbridge
+    CLOUDBRIDGE_LOG_FORMAT: json
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cloudbridge
+      POSTGRES_DB: cloudbridge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloudbridge -d cloudbridge"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    <<: *backend
+    build: ../backend
+    pull_policy: build
+    command: ["python", "-m", "app.cli", "migrate"]
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck: { disable: true }
+    restart: "no"
+
+  api:
+    <<: *backend
+    environment:
+      <<: *backend-env
+      CLOUDBRIDGE_RUN_WORKER: "false"
+      # Only the web container reaches the API, and it sets X-Forwarded-For to the client address.
+      CLOUDBRIDGE_TRUST_PROXY_HEADERS: "true"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/ready', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    stop_grace_period: 30s
+
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    # The worker serves no HTTP; it exits (and is restarted) if its loop ever stops.
+    healthcheck: { disable: true }
+    # A running deployment step finishes or is resumed from its saved state by the next worker.
+    stop_grace_period: 40s
+
+  web:
+    build: ../frontend
+    image: cloudbridge-web:local
+    environment:
+      CLOUDBRIDGE_API_UPSTREAM: http://api:8000
+      CLOUDBRIDGE_TRUSTED_PROXY: ${CLOUDBRIDGE_TRUSTED_PROXY:-127.0.0.1/32}
+    ports:
+      - "${CLOUDBRIDGE_HTTP_PORT:-8080}:8080"
+    depends_on:
+      api: { condition: service_healthy }
+    restart: unless-stopped
+
+volumes:
+  db-data:

@@ -474,6 +474,17 @@ deleting and testing channels require `providers:manage` (owner and admin).
 ApiToken = { id, name, prefix, created_at, last_used_at|null, expires_at|null }
 ```
 
+## Operational probes
+
+Not used by the web app and not in the OpenAPI schema; no authentication, no CSRF cookie needed.
+
+| Method | Path | Response |
+| ------ | ---- | -------- |
+| GET | `/health` | `200 { status: 'ok' }` while the process answers (liveness; no database access) |
+| GET | `/ready` | `200 { status: 'ready', checks }` or `503 { status: 'not_ready', checks }`; `checks` maps `database` (`ok`\|`unreachable`), `schema` (`ok`\|`newer`\|`behind`\|`not_migrated`\|`unknown`) and, with an in-process worker, `worker` (`ok`\|`stopped`). `ok` and `newer` pass. See `docs/deployment.md` |
+
+Both answer during maintenance mode and are not written to the request log.
+
 ## Not yet in the contract
 
 These are intentionally not offered in the UI until the backend supports them:

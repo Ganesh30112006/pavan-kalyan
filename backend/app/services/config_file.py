@@ -21,12 +21,13 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 import httpx
 import yaml
 
 from app.errors import FieldError
+from app.urls import split_url
 
 MAX_BYTES = 64 * 1024
 FILE_NAME = "cloudbridge.yaml"
@@ -85,8 +86,8 @@ def parse(text: str, current: dict[str, Any]) -> dict[str, Any]:
             "health_check_path",
         )
     }
-    result["environment"] = [dict(e) for e in current.get("environment", [])]
-    result["secret_refs"] = [dict(s) for s in current.get("secret_refs", [])]
+    result["environment"] = [dict(e) for e in (current.get("environment") or [])]
+    result["secret_refs"] = [dict(s) for s in (current.get("secret_refs") or [])]
 
     def integer(key: str, value: Any) -> int | None:
         if isinstance(value, bool) or not isinstance(value, int):
@@ -165,9 +166,9 @@ def fetch_github(repository_url: str, ref: str, client_factory: Callable[[], htt
     Only public github.com repositories are read, through raw.githubusercontent.com: the host is fixed,
     so a repository URL cannot make CloudBridge fetch from anywhere else.
     """
-    parts = urlsplit(repository_url)
-    match = _GITHUB_REPO.match(parts.path)
-    if parts.scheme != "https" or (parts.hostname or "").lower() != "github.com" or match is None:
+    parts = split_url(repository_url)
+    match = _GITHUB_REPO.match(parts.path) if parts else None
+    if parts is None or parts.scheme != "https" or (parts.hostname or "").lower() != "github.com" or match is None:
         raise ConfigFetchError(f"{FILE_NAME} can be read only from public github.com repositories.")
     owner, repo = match.group(1), match.group(2)
     url = f"https://raw.githubusercontent.com/{owner}/{repo}/{quote(ref, safe='/')}/{FILE_NAME}"

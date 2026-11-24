@@ -52,10 +52,12 @@ backend/               FastAPI + SQLAlchemy 2 + Alembic (SQLite dev, PostgreSQL 
                        capabilities.py, images.py
   app/worker/          deployment state machine (deployments.py), validation, deletion, health, schedules, alerts
   app/services/        specs validation, idempotency, rate limit, audit, costs, cloudbridge.yaml, alerts
-  tests/               201 tests; botocore Stubber / httpx MockTransport; no network
+  tests/               330 tests; botocore Stubber / httpx MockTransport; no network (plus API fuzzing,
+                       hypothesis properties, cross-org/viewer sweeps over every route)
 cli/cloudbridge.py     Stdlib-only CLI + GitHub Action (cli/action.yml), uses API tokens
-docs/                  api-contract.md (source of truth for every response shape), security.md
+docs/                  api-contract.md (source of truth for every response shape), security.md, deployment.md (operators)
 deploy/nginx.conf      Production example (same-origin /api proxy, strict CSP)
+deploy/compose.yaml    Docker Compose stack: PostgreSQL, migrate, API, worker, web (frontend/Dockerfile + nginx/ template)
 .github/workflows/ci.yml  ruff, ruff format, mypy, pytest; typecheck, lint, test, build, demo-isolation checks
 ```
 
@@ -145,7 +147,10 @@ Local run: backend on `localhost:8000` (`uvicorn app.main:create_app --factory`)
 non-interactive). Demo UI without backend: `npm run dev:demo` (in-memory, page reload logs out; navigate
 with history.pushState in Playwright to keep the session).
 
-Current baseline (2026-11-16): backend 213 tests, frontend 274 tests, all lint/type/build checks clean.
+Current baseline (2026-11-25): backend 330 tests (312 of them also green on PostgreSQL 16 on 2026-11-24), frontend 276 tests, all
+lint/type/build checks clean, `npm audit` 0. PostgreSQL run: start a throwaway `postgres:16-alpine` container and
+set `CLOUDBRIDGE_TEST_DATABASE_URL=postgresql+psycopg://...` (each test resets the schema; CI job `backend-postgres`).
+Fuzz deeper locally with `CLOUDBRIDGE_FUZZ_ROUNDS=40 CLOUDBRIDGE_FUZZ_SEED=<n>`.
 
 ## 6. Cloud accounts and their state
 
@@ -207,3 +212,12 @@ Root cannot assume roles, and the safety classifier blocks creating access keys.
   in: if that tab completes first, the test profile gets **root**. Check `aws sts get-caller-identity --profile …`
   after every login; on root, delete the profile's `login_session` line (never `aws logout` a root session) and redo.
 - Docker Desktop is usually not running; no Python 3.9 locally (use `vermin -t=3.9-` to check the script).
+  `docker desktop stop` shuts it down again after a test.
+- Migrations must run on PostgreSQL too: boolean `server_default` needs `false` there (`0` broke 0003 until
+  2026-11-24). Parse URLs with `app.urls.split_url` (urlsplit raises on `https://[::1`), and alert webhooks go
+  through `PublicOnlyTransport` (IP pinned after the public-address check, against DNS rebinding).
+- Production operation (2026-11-25): `/api/v1/health` = liveness, `/api/v1/ready` = readiness (DB, schema vs Alembic
+  heads, in-process worker). Schema `newer` passes on purpose (rolling upgrades), so **migrations must stay additive
+  while two releases overlap**. The web nginx resolves the API name at request time (`resolver`, variable
+  `proxy_pass`); a fixed `proxy_pass http://api:8000` kept a recreated API's old IP and returned 502.
+  Chunked bodies over the limit used to give 500 (or 400 from FastAPI); `BodySizeLimit` now answers 413.

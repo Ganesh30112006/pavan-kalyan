@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     environment: Literal["development", "test", "production"] = "development"
     database_url: str = "sqlite:///./cloudbridge.db"
     log_level: str = "INFO"
+    log_format: Literal["text", "json"] = "text"
+    """"json" writes one JSON object per line (for log collectors); "text" is for reading in a terminal."""
 
     # Browser-facing security
     cors_origins: str = ""
@@ -48,6 +50,8 @@ class Settings(BaseSettings):
     login_max_attempts: int = 10
     login_window_seconds: int = 300
     max_body_bytes: int = 1_048_576
+    max_webhook_body_bytes: int = 26_214_400
+    """GitHub webhook deliveries can be up to 25 MB (a push touching many files); other requests stay small."""
     trust_proxy_headers: bool = False
     """Use X-Forwarded-For for the client address (only behind a trusted reverse proxy)."""
     maintenance_mode: bool = False
@@ -131,6 +135,12 @@ class Settings(BaseSettings):
                 raise ValueError("CLOUDBRIDGE_CORS_ORIGINS cannot contain '*'.")
             if self.allow_private_alert_urls:
                 raise ValueError("CLOUDBRIDGE_ALLOW_PRIVATE_ALERT_URLS cannot be used in production.")
+            if self.database_url.startswith("sqlite"):
+                raise ValueError(
+                    "CLOUDBRIDGE_DATABASE_URL must point to PostgreSQL in production (SQLite is for development)."
+                )
+            if self.public_url is not None and not self.public_url.startswith("https://"):
+                raise ValueError("CLOUDBRIDGE_PUBLIC_URL must start with https:// in production.")
         if "*" in self.cors_origin_list:
             raise ValueError("CLOUDBRIDGE_CORS_ORIGINS cannot contain '*' because credentials are allowed.")
         if self.azure_token_source == "file" and not self.azure_token_file:

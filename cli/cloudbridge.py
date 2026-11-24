@@ -21,6 +21,7 @@ or API errors.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import stat
@@ -35,10 +36,25 @@ from typing import Any
 
 TERMINAL = {"succeeded", "failed", "rolled_back", "failed_rollback", "cancelled"}
 SUCCESS = {"succeeded"}
+WATCH_ERRORS = 12
+"""Consecutive failed status checks `--wait` tolerates (about a minute) before giving up."""
 
 
 class CliError(Exception):
-    pass
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
+        """The request may succeed if repeated (network trouble, 429, 5xx)."""
+
+
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """The API never redirects. Following one would send the API token to wherever it points."""
+
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> None:
+        raise CliError(f"CloudBridge answered with a redirect to {newurl}. Check CLOUDBRIDGE_URL.")
+
+
+_OPENER = urllib.request.build_opener(_NoRedirects)
 
 
 def config_path() -> Path:
@@ -54,11 +70,12 @@ def load_config() -> tuple[str, str]:
         config = config_path()
         if config.exists():
             try:
-                saved = json.loads(config.read_text(encoding="utf-8"))
+                loaded = json.loads(config.read_text(encoding="utf-8"))
             except ValueError:
-                saved = {}
-        url = url or saved.get("url") or ""
-        token = token or saved.get("token") or ""
+                loaded = None
+            saved = loaded if isinstance(loaded, dict) else {}
+        url = url or str(saved.get("url") or "")
+        token = token or str(saved.get("token") or "")
     if not url or not token:
         raise CliError("Set CLOUDBRIDGE_URL and CLOUDBRIDGE_TOKEN, or run `cloudbridge login`.")
     return url.rstrip("/"), token
@@ -85,20 +102,27 @@ class Api:
         if idempotent:
             request.add_header("Idempotency-Key", str(uuid.uuid4()))
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 - scheme checked in __init__
+            with _OPENER.open(request, timeout=60) as response:
                 raw = response.read()
         except urllib.error.HTTPError as error:
-            raw = error.read()
             try:
+                raw = error.read()
                 problem = json.loads(raw)["error"]
-                fields = "; ".join(f"{f['field']}: {f['message']}" for f in problem.get("fields", []))
+                fields = "; ".join(f"{f['field']}: {f['message']}" for f in problem.get("fields") or [])
                 message = problem["message"] + (f" ({fields})" if fields else "")
-            except (ValueError, KeyError, TypeError):
+            except (ValueError, KeyError, TypeError, OSError, http.client.HTTPException):
                 message = f"HTTP {error.code}"
-            raise CliError(message) from None
+            raise CliError(message, transient=error.code == 429 or error.code >= 500) from None
         except urllib.error.URLError as error:
-            raise CliError(f"Could not reach CloudBridge: {error.reason}") from None
-        return json.loads(raw) if raw else None
+            raise CliError(f"Could not reach CloudBridge: {error.reason}", transient=True) from None
+        except (OSError, http.client.HTTPException) as error:  # timeouts and dropped connections mid-response
+            raise CliError(
+                f"The connection to CloudBridge failed: {error or type(error).__name__}", transient=True
+            ) from None
+        try:
+            return json.loads(raw) if raw else None
+        except ValueError:
+            raise CliError("CloudBridge sent a response that is not JSON. Check CLOUDBRIDGE_URL.") from None
 
     def find_app(self, name_or_id: str) -> dict[str, Any]:
         query = urllib.parse.urlencode({"search": name_or_id, "page_size": 100})
@@ -106,17 +130,29 @@ class Api:
             if name_or_id in (app["name"], app["id"]):
                 return dict(app)
         try:
-            return dict(self.call("GET", f"/apps/{urllib.parse.quote(name_or_id)}"))
+            return dict(self.call("GET", f"/apps/{urllib.parse.quote(name_or_id, safe='')}"))
         except CliError:
             raise CliError(f"No application named {name_or_id}.") from None
 
 
 def watch(api: Api, deployment_id: str, timeout_minutes: int) -> int:
     seen = 0
+    errors = 0
     deadline = time.monotonic() + timeout_minutes * 60
+    path = f"/deployments/{urllib.parse.quote(deployment_id, safe='')}"
     while time.monotonic() < deadline:
-        dep = api.call("GET", f"/deployments/{deployment_id}")
-        events = api.call("GET", f"/deployments/{deployment_id}/events")
+        try:
+            dep = api.call("GET", path)
+            events = api.call("GET", f"{path}/events")
+        except CliError as error:
+            # The deployment keeps running in CloudBridge; a brief outage must not fail the CI job.
+            errors += 1
+            if not error.transient or errors >= WATCH_ERRORS:
+                raise
+            print(f"  (status check failed, retrying: {error})", file=sys.stderr, flush=True)
+            time.sleep(5)
+            continue
+        errors = 0
         for event in events[seen:]:
             print(f"  {event['timestamp'][11:19]}  {event['level']:<7} {event['message']}", flush=True)
         seen = len(events)
@@ -141,14 +177,25 @@ def cmd_login(args: argparse.Namespace) -> int:
     Api(url, args.token).call("GET", "/apps?page_size=1")
     config = config_path()
     config.parent.mkdir(parents=True, exist_ok=True)
-    config.write_text(json.dumps({"url": url, "token": args.token}), encoding="utf-8")
-    config.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    # Created readable only by the user from the start (writing first and restricting afterwards would leave
+    # the token readable by others for a moment).
+    fd = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, stat.S_IRUSR | stat.S_IWUSR)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({"url": url, "token": args.token}))
+    config.chmod(stat.S_IRUSR | stat.S_IWUSR)  # an existing file keeps its old mode on open()
     print(f"Saved credentials for {url} to {config}.")
     return 0
 
 
 def cmd_apps(api: Api, args: argparse.Namespace) -> int:
-    apps = api.call("GET", "/apps?page_size=100")["items"]
+    apps: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        result = api.call("GET", f"/apps?page_size=100&page={page}")
+        apps.extend(result["items"])
+        if not result["items"] or len(apps) >= int(result["total"]):
+            break
+        page += 1
     width = max([len(a["name"]) for a in apps] + [4])
     for app in apps:
         version = app["current_version"] or "-"
@@ -182,7 +229,7 @@ def cmd_promote(api: Api, args: argparse.Namespace) -> int:
 
 def cmd_approve(api: Api, args: argparse.Namespace) -> int:
     action = "reject" if args.reject else "approve"
-    dep = api.call("POST", f"/deployments/{args.deployment}/{action}")
+    dep = api.call("POST", f"/deployments/{urllib.parse.quote(args.deployment, safe='')}/{action}")
     print(f"Deployment {dep['id']}: {dep['status']}")
     return 0
 

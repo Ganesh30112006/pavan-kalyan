@@ -19,7 +19,6 @@ import posixpath
 import re
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlsplit
 
 import httpx
 
@@ -59,6 +58,7 @@ from app.providers.capabilities import (
 from app.providers.entra import FederatedIdentity, TokenSource
 from app.providers.images import OciResolver, is_digest, parse_image
 from app.redaction import log_line, safe_message
+from app.urls import split_url
 
 logger = logging.getLogger(__name__)
 
@@ -181,8 +181,8 @@ class AzureContainerAppsAdapter(ExtrasNotSupported):
         except ValueError:
             body = {}
         error = (body.get("error") or {}) if isinstance(body, dict) else {}
-        code = str(error.get("code", "")) if isinstance(error, dict) else ""
-        raw = str(error.get("message", "")) if isinstance(error, dict) else ""
+        code = str(error.get("code") or "") if isinstance(error, dict) else ""
+        raw = str(error.get("message") or "") if isinstance(error, dict) else ""
         if status == 401:
             return ProviderError("invalid_credentials", "Azure rejected CloudBridge's credentials.")
         if code in ("MissingSubscriptionRegistration", "SubscriptionNotRegistered"):
@@ -428,8 +428,9 @@ class AzureContainerAppsAdapter(ExtrasNotSupported):
     def _build_logs(self, conn: ConnectionInfo, run_url: str) -> list[tuple[dt.datetime, str]]:
         try:
             link = self._request(conn, "POST", f"{run_url}/listLogSasUrl?api-version={ACR_RUNS_API}").get("logLink")
-            host = urlsplit(str(link or "")).hostname or ""
-            if not link or urlsplit(str(link)).scheme != "https" or not host.endswith(".blob.core.windows.net"):
+            parts = split_url(str(link or ""))
+            host = (parts.hostname if parts else None) or ""
+            if not link or parts is None or parts.scheme != "https" or not host.endswith(".blob.core.windows.net"):
                 return []
             with self._client_factory() as client:
                 response = client.get(str(link))
@@ -492,9 +493,10 @@ class AzureContainerAppsAdapter(ExtrasNotSupported):
         if response.status_code == 404:
             raise ProviderError("image_not_found", "The container registry was not found.")
         try:
-            token = response.json().get("refresh_token")
+            data = response.json()
         except ValueError:
-            token = None
+            data = None
+        token = data.get("refresh_token") if isinstance(data, dict) else None
         if response.status_code != 200 or not isinstance(token, str) or not token:
             raise ProviderError("provider_unavailable", "The container registry did not issue a token.", retryable=True)
         return token
@@ -804,7 +806,7 @@ class AzureContainerAppsAdapter(ExtrasNotSupported):
                     (
                         str(m.get("value"))
                         for m in ts.get("metadatavalues") or []
-                        if (m.get("name") or {}).get("value", "").lower() == "statuscodecategory"
+                        if ((m.get("name") or {}).get("value") or "").lower() == "statuscodecategory"
                     ),
                     "",
                 )
@@ -874,7 +876,7 @@ class AzureContainerAppsAdapter(ExtrasNotSupported):
         records = self._domain_records(conn, app, domain)
         container_app = self._request(conn, "GET", f"{ARM}{app.provider_service_id}?api-version={APPS_API}")
         ingress = dict(((container_app.get("properties") or {}).get("configuration") or {}).get("ingress") or {})
-        bound = [d for d in ingress.get("customDomains") or [] if str(d.get("name", "")).lower() == domain]
+        bound = [d for d in ingress.get("customDomains") or [] if str(d.get("name") or "").lower() == domain]
         if bound and bound[0].get("bindingType") == "SniEnabled":
             return DomainState(status="active", records=records)
         try:
@@ -890,8 +892,8 @@ class AzureContainerAppsAdapter(ExtrasNotSupported):
             return DomainState(
                 status="pending_dns", records=records, message="Create the DNS records below; Azure then verifies them."
             )
-        props = analysis.get("properties", analysis)
-        if str(props.get("customDomainVerificationTest", "")).lower() != "passed":
+        props = analysis.get("properties") or analysis
+        if str(props.get("customDomainVerificationTest") or "").lower() != "passed":
             failure = (props.get("customDomainVerificationFailureInfo") or {}).get("message")
             return DomainState(
                 status="pending_dns",
@@ -912,12 +914,12 @@ class AzureContainerAppsAdapter(ExtrasNotSupported):
                 json={"location": location, "properties": {"subjectName": domain, "domainControlValidation": "CNAME"}},
             )
             return DomainState(status="verifying", records=records, message="Azure is issuing the certificate.")
-        state = str((certificate.get("properties") or {}).get("provisioningState", ""))
+        state = str((certificate.get("properties") or {}).get("provisioningState") or "")
         if state.lower() == "failed":
             return DomainState(status="failed", records=records, message="Azure could not issue the certificate.")
         if state.lower() != "succeeded":
             return DomainState(status="verifying", records=records, message="Azure is issuing the certificate.")
-        domains = [d for d in ingress.get("customDomains") or [] if str(d.get("name", "")).lower() != domain]
+        domains = [d for d in ingress.get("customDomains") or [] if str(d.get("name") or "").lower() != domain]
         domains.append({"name": domain, "bindingType": "SniEnabled", "certificateId": certificate_id})
         ingress["customDomains"] = domains
         self._request(
@@ -937,7 +939,7 @@ class AzureContainerAppsAdapter(ExtrasNotSupported):
                 ingress = dict(
                     ((container_app.get("properties") or {}).get("configuration") or {}).get("ingress") or {}
                 )
-                kept = [d for d in ingress.get("customDomains") or [] if str(d.get("name", "")).lower() != domain]
+                kept = [d for d in ingress.get("customDomains") or [] if str(d.get("name") or "").lower() != domain]
                 if len(kept) != len(ingress.get("customDomains") or []):
                     ingress["customDomains"] = kept
                     self._request(

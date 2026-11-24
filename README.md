@@ -110,6 +110,7 @@ frontend/public/cloudbridge-connect.py   Guided cloud account setup script (stdl
 cli/                     Single-file CLI (stdlib only) and a composite GitHub Action
 docs/                    API contract and security notes
 deploy/nginx.conf        Example production server with security headers
+deploy/compose.yaml      Docker Compose stack (PostgreSQL, migrations, API, worker, web)
 ```
 
 ## Getting started
@@ -186,6 +187,11 @@ Run inside `frontend/`:
 | `npm run preview`   | Serve the production build locally |
 
 ## Deployment
+
+`docs/deployment.md` is the operator guide. It covers container images for the web app and API
+(`frontend/Dockerfile`, `backend/Dockerfile`), a ready-to-run Docker Compose stack (`deploy/compose.yaml`:
+PostgreSQL, migrations, API, worker, web), probes, upgrades, logs and backups. To serve the web app without
+containers:
 
 1. Build with `VITE_DEMO_MODE` unset: `npm ci && npm run build`.
 2. Serve `frontend/dist` over HTTPS. `deploy/nginx.conf` is a working example:

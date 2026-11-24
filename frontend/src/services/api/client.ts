@@ -262,10 +262,9 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
     if (error.kind === 'network' || error.kind === 'timeout') return true;
     if (error.kind !== 'http') return false;
     if (error.status === 503 && error.code === 'maintenance') return false;
-    if (error.status === 429) {
-      return error.retryAfterSeconds === null || error.retryAfterSeconds <= MAX_RETRY_AFTER_SECONDS;
-    }
-    return error.status === 502 || error.status === 503 || error.status === 504;
+    // A long Retry-After (any status) is reported to the user instead of silently waiting that long.
+    if (error.retryAfterSeconds !== null && error.retryAfterSeconds > MAX_RETRY_AFTER_SECONDS) return false;
+    return error.status === 429 || error.status === 502 || error.status === 503 || error.status === 504;
   }
 
   async function execute(opts: RequestOptions): Promise<{ response: Response; requestId: string }> {

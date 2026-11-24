@@ -1,0 +1,100 @@
+# nginx config for the cloudbridge-web container (see frontend/Dockerfile). TLS ends at the load balancer or
+# ingress in front of it; deploy/nginx.conf is the equivalent for a server that terminates TLS itself.
+# ${CLOUDBRIDGE_API_UPSTREAM}: the API container. ${CLOUDBRIDGE_TRUSTED_PROXY}: the CIDR of that load balancer,
+# whose X-Forwarded-For is trusted to name the client (the default trusts nobody). ${CLOUDBRIDGE_DNS_RESOLVER}:
+# the DNS server that resolves the API's name (127.0.0.11 is Docker's; in Kubernetes, the cluster DNS service IP).
+
+server_tokens off;
+gzip on;
+gzip_types text/css application/javascript application/json image/svg+xml;
+gzip_min_length 1024;
+
+# The client address as seen by the load balancer, forwarded to the API for per-client sign-in rate limits.
+set_real_ip_from ${CLOUDBRIDGE_TRUSTED_PROXY};
+real_ip_header X-Forwarded-For;
+real_ip_recursive on;
+
+# The API's name is looked up again every 10 s instead of once at start, so a recreated API container (new IP)
+# keeps receiving traffic.
+resolver ${CLOUDBRIDGE_DNS_RESOLVER} valid=10s ipv6=off;
+resolver_timeout 5s;
+
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    set $api_upstream ${CLOUDBRIDGE_API_UPSTREAM};
+    set $csp "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests";
+
+    # Bodies over the limits below are refused here, in the API's error format.
+    error_page 413 @payload_too_large;
+    location @payload_too_large {
+        default_type application/json;
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        return 413 '{"error":{"code":"payload_too_large","message":"The request body is too large.","request_id":null,"fields":[]}}';
+    }
+
+    # Container health check (the API has its own /api/v1/health and /api/v1/ready).
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # GitHub webhook deliveries can be up to 25 MB; the API applies the same limit.
+    location /api/v1/hooks/ {
+        client_max_body_size 25m;
+        proxy_pass $api_upstream;
+        proxy_set_header Host $host;
+        # Replaces any client-supplied value: the API takes the last entry as the client address.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Request-ID $http_x_request_id;
+        proxy_read_timeout 60s;
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    }
+
+    location /api/ {
+        client_max_body_size 1m;
+        proxy_pass $api_upstream;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Request-ID $http_x_request_id;
+        proxy_read_timeout 60s;
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    }
+
+    # Hashed assets never change.
+    location /assets/ {
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    }
+
+    # Source maps are removed from the image; keep any stray one private.
+    location ~ \.map$ {
+        return 404;
+    }
+
+    # Single-page app: unknown paths render index.html, which shows its own 404 page.
+    location / {
+        try_files $uri /index.html;
+        add_header Cache-Control "no-cache" always;
+        add_header Content-Security-Policy $csp always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+        add_header Cross-Origin-Opener-Policy "same-origin" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    }
+}

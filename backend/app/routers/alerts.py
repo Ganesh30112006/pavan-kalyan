@@ -208,6 +208,7 @@ def test_channel(
                 occurred_at=clock.utcnow(),
             ),
             notifier.client_factory,
+            allow_private=settings.allow_private_alert_urls,
         )
     channel.last_delivery_at = clock.utcnow()
     channel.last_delivery_status = status[:80]

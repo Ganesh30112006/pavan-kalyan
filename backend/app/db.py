@@ -43,6 +43,9 @@ class Database:
         kwargs: dict[str, Any] = {"pool_pre_ping": True}
         if url.startswith("sqlite"):
             kwargs["connect_args"] = {"check_same_thread": False, "timeout": 30}
+        elif url.startswith("postgresql"):
+            # Fail fast when the database is unreachable instead of hanging requests and readiness checks.
+            kwargs["connect_args"] = {"connect_timeout": 10}
         self.engine: Engine = create_engine(url, **kwargs)
         if self.engine.dialect.name == "sqlite":
             event.listen(self.engine, "connect", _sqlite_pragmas)

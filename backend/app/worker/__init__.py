@@ -13,6 +13,8 @@ from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy import or_, select, update
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from app import clock
 from app.config import Settings
@@ -26,7 +28,10 @@ from app.worker.notify import Notifier
 
 logger = logging.getLogger(__name__)
 
-DEPLOYMENT_LEASE = dt.timedelta(minutes=2)
+# Longer than the slowest single step (several provider calls, each with connect/read timeouts and retries),
+# so a second worker process never takes over a step that is still running. A crashed worker's deployment
+# resumes when the lease runs out.
+DEPLOYMENT_LEASE = dt.timedelta(minutes=10)
 DELETE_LEASE = dt.timedelta(minutes=2)
 HOUSEKEEPING_EVERY = dt.timedelta(minutes=10)
 SCHEDULES_EVERY = dt.timedelta(minutes=1)
@@ -57,6 +62,7 @@ class Worker:
         self._thread: threading.Thread | None = None
         self._last_housekeeping: dt.datetime | None = None
         self._last_schedules: dt.datetime | None = None
+        self._database_down = False
 
     # ----- lifecycle -----
 
@@ -71,19 +77,39 @@ class Worker:
             self._thread.join(timeout=30)
         self._notifier.close()
 
+    @property
+    def alive(self) -> bool:
+        """True while the worker thread is running (it catches errors per iteration, so it stops only on stop())."""
+        return self._thread is not None and self._thread.is_alive()
+
     def wake(self) -> None:
         self._wake.set()
 
     def _loop(self) -> None:
         logger.info("Worker started")
         while not self._stop.is_set():
-            try:
-                self.run_once()
-            except Exception:
-                logger.exception("Worker iteration failed")
+            self.iterate()
             self._wake.wait(self._settings.worker_poll_seconds)
             self._wake.clear()
         logger.info("Worker stopped")
+
+    def iterate(self) -> None:
+        """One loop pass that never raises. While the database is unreachable (restart, failover, network) it
+        logs one line when that starts and one when it ends, instead of a traceback on every poll."""
+        try:
+            self.run_once()
+        except OperationalError as exc:
+            if not self._database_down:
+                detail = str(exc.orig or exc).strip()
+                reason = detail.splitlines()[0][:200] if detail else type(exc).__name__
+                logger.warning("The database is unavailable; the worker keeps retrying (%s)", reason)
+            self._database_down = True
+            return
+        except Exception:
+            logger.exception("Worker iteration failed")
+        if self._database_down:
+            self._database_down = False
+            logger.info("The database is reachable again")
 
     def run_once(self) -> int:
         """Processes everything that is due once. Returns the number of items handled."""
@@ -107,17 +133,20 @@ class Worker:
 
     # ----- leases -----
 
-    def _claim(self, model: Any, row_id: str, lease: dt.timedelta) -> bool:
+    def _claim(self, model: Any, row_id: str, lease: dt.timedelta) -> dt.datetime | None:
+        """Takes the row's lease. Returns the lease's expiry (which identifies this claim), or None when
+        another worker holds it."""
         now = clock.utcnow()
+        until = now + lease
         with self._db.session() as db:
             result = db.execute(
                 update(model)
                 .where(model.id == row_id, or_(model.locked_until.is_(None), model.locked_until < now))
-                .values(locked_until=now + lease)
+                .values(locked_until=until)
                 .execution_options(synchronize_session=False)
             )
             db.commit()
-            return getattr(result, "rowcount", 0) == 1
+            return until if getattr(result, "rowcount", 0) == 1 else None
 
     # ----- deployments -----
 
@@ -165,19 +194,32 @@ class Worker:
             ).all()
         handled = 0
         for dep_id in ids:
-            if not self._claim(Deployment, dep_id, DEPLOYMENT_LEASE):
+            lease = self._claim(Deployment, dep_id, DEPLOYMENT_LEASE)
+            if lease is None:
                 continue
             handled += 1
-            self._step_deployment(dep_id)
+            self._step_deployment(dep_id, lease)
         return handled
 
-    def _step_deployment(self, dep_id: str) -> None:
+    def _step_deployment(self, dep_id: str, lease: dt.datetime) -> None:
         try:
             with self._db.session() as db:
                 dep = db.get(Deployment, dep_id)
                 if dep is None:
                     return
                 delay = self._flow.step(db, dep)
+                # Fencing: record the step only while this worker still holds its lease. If the step outlived
+                # the lease and another worker took the deployment over, its record wins and this one is dropped.
+                held = db.execute(
+                    update(Deployment)
+                    .where(Deployment.id == dep_id, Deployment.locked_until == lease)
+                    .values(locked_until=None)
+                    .execution_options(synchronize_session=False)
+                )
+                if getattr(held, "rowcount", 0) != 1:
+                    db.rollback()
+                    logger.warning("Deployment lease lost; step result dropped", extra={"deployment_id": dep_id})
+                    return
                 self._release(dep, delay)
                 db.commit()
         except Exception:
@@ -326,9 +368,9 @@ class Worker:
                     app = db.get(Application, app_id)
                     if app is None or app.active_deployment_id is not None:
                         continue
+                    paused = app.paused
                     tasks.check_health(db, app, self._registry, self._http_client_factory, self._notifier)
-                    app.locked_until = None
-                    db.commit()
+                    self._commit_if_unchanged(db, app_id, paused=paused)
             except Exception:
                 logger.exception("Health check failed", extra={"application_id": app_id})
                 self._unlock(app_id)
@@ -356,10 +398,11 @@ class Worker:
             try:
                 with self._db.session() as db:
                     app = db.get(Application, app_id)
-                    if app is not None and app.active_deployment_id is None:
-                        tasks.apply_schedule(db, app, self._registry, now)
-                        app.locked_until = None
-                    db.commit()
+                    if app is None or app.active_deployment_id is not None:
+                        continue
+                    paused = app.paused
+                    tasks.apply_schedule(db, app, self._registry, now)
+                    self._commit_if_unchanged(db, app_id, paused=paused)
             except Exception:
                 logger.exception("Sleep schedule failed", extra={"application_id": app_id})
                 self._unlock(app_id)
@@ -398,6 +441,32 @@ class Worker:
             except Exception:
                 logger.exception("Custom domain check failed", extra={"domain_id": domain_id})
         return handled
+
+    def _commit_if_unchanged(self, db: Session, app_id: str, *, paused: bool) -> None:
+        """Commits a health check or schedule result only if, meanwhile, nobody started a deployment, asked
+        to delete the application or paused/resumed it through the API. Otherwise the result is stale and
+        would overwrite their change (for example "deleting" with "running"), so it is dropped.
+
+        The conditional UPDATE runs first in the transaction: it takes the row's write lock (PostgreSQL row
+        lock, SQLite database lock), so no other change can land between the check and the commit."""
+        still = db.execute(
+            update(Application)
+            .where(
+                Application.id == app_id,
+                Application.deleted_at.is_(None),
+                Application.delete_requested_at.is_(None),
+                Application.active_deployment_id.is_(None),
+                Application.paused == paused,
+            )
+            .values(locked_until=None)
+            .execution_options(synchronize_session=False)
+        )
+        if getattr(still, "rowcount", 0) == 1:
+            db.commit()
+            return
+        db.rollback()
+        logger.info("Dropped a stale worker result", extra={"application_id": app_id})
+        self._unlock(app_id)
 
     def _unlock(self, app_id: str) -> None:
         with self._db.session() as db:

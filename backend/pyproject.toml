@@ -1,7 +1,7 @@
 [project]
 name = "cloudbridge-backend"
 version = "0.1.0"
-description = "CloudBridge API: deploy containerized applications to AWS App Runner and Google Cloud Run"
+description = "CloudBridge API: deploy containerized applications to AWS, Azure, Google Cloud and Kubernetes"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.143,<1",

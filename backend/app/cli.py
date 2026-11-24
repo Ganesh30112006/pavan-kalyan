@@ -17,13 +17,13 @@ import os
 import sys
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app import clock, validation
 from app.config import Settings
 from app.db import Database
 from app.domain import USER_ROLES
-from app.models import Organization, User
+from app.models import Organization, User, UserSession
 from app.security import hash_password, password_problem
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -97,8 +97,10 @@ def set_password(settings: Settings, args: argparse.Namespace) -> None:
         if user is None:
             sys.exit("No user has this e-mail address.")
         user.password_hash = hash_password(_password())
+        # A reset is often the answer to a leaked password: whoever signed in with the old one is signed out.
+        ended = db.execute(delete(UserSession).where(UserSession.user_id == user.id))
         db.commit()
-        print(f"Password updated for {user.email}.")
+        print(f"Password updated for {user.email}; {getattr(ended, 'rowcount', 0)} session(s) signed out.")
     database.dispose()
 
 

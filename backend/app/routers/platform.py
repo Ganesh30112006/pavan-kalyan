@@ -284,17 +284,18 @@ def promote(
     """Deploys the exact image this application runs (pinned by digest) to its promotion target, with the
     target's own configuration."""
     app = find_app(db, principal, application_id)
-    if not app.promote_to_id:
-        raise conflict("no_promotion_target", "Choose an application to promote to first.")
-    target = find_app(db, principal, app.promote_to_id)
+    # Permission first: someone who may not deploy learns nothing about the promotion setup.
     authorize(
         db,
         principal,
         "deployments:create",
         action="deployment.created",
         resource_type="deployment",
-        resource_name=target.name,
+        resource_name=app.name,
     )
+    if not app.promote_to_id:
+        raise conflict("no_promotion_target", "Choose an application to promote to first.")
+    target = find_app(db, principal, app.promote_to_id)
     ctx = idempotency.context(
         request,
         scope=f"POST /apps/{app.id}/promote",

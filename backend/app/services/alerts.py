@@ -16,11 +16,12 @@ import socket
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlsplit
 
+import httpcore
 import httpx
 
 from app import clock
+from app.urls import split_url
 
 Resolver = Callable[[str], list[str]]
 SLACK_HOSTS = ("hooks.slack.com",)
@@ -44,9 +45,9 @@ def _is_public(address: str) -> bool:
 
 def url_problem(kind: str, url: str, *, allow_private: bool = False, resolver: Resolver | None = None) -> str | None:
     """Why `url` cannot be used for a `kind` channel, or None when it can."""
-    parts = urlsplit(url.strip())
-    host = (parts.hostname or "").lower()
-    if not host or parts.username or parts.password:
+    parts = split_url(url.strip())
+    host = ((parts.hostname if parts else None) or "").lower()
+    if parts is None or not host or parts.username or parts.password:
         return "Enter the full webhook address, e.g. https://hooks.slack.com/services/…"
     local = allow_private and (host in ("localhost", "127.0.0.1") or host.endswith(".localhost"))
     if parts.scheme != "https" and not (local and parts.scheme == "http"):
@@ -66,8 +67,58 @@ def url_problem(kind: str, url: str, *, allow_private: bool = False, resolver: R
     return None
 
 
+class _PublicOnlyBackend(httpcore.NetworkBackend):
+    """Connects only to public addresses, and to exactly the address it checked.
+
+    `url_problem` checks the host before delivery, but a host name can resolve differently a moment later (DNS
+    rebinding: a short-lived record that points at a public address for the check and at an internal one for the
+    connection). Resolving here and connecting to that IP closes the gap. TLS still verifies the host name: httpcore
+    starts TLS with the URL's host as the server name, not the IP."""
+
+    def __init__(self, resolver: Resolver) -> None:
+        self._inner: httpcore.NetworkBackend = httpcore.SyncBackend()
+        self._resolver = resolver
+
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Any = None,
+    ) -> httpcore.NetworkStream:
+        try:
+            addresses = self._resolver(host)
+        except OSError:
+            raise httpcore.ConnectError("The webhook host could not be resolved.") from None
+        if not addresses or not all(_is_public(a) for a in addresses):
+            raise httpcore.ConnectError("The webhook host is not a public internet address.")
+        return self._inner.connect_tcp(
+            addresses[0], port, timeout=timeout, local_address=local_address, socket_options=socket_options
+        )
+
+    def connect_unix_socket(
+        self, path: str, timeout: float | None = None, socket_options: Any = None
+    ) -> httpcore.NetworkStream:
+        raise httpcore.ConnectError("Alerts are not sent over Unix sockets.")
+
+    def sleep(self, seconds: float) -> None:
+        self._inner.sleep(seconds)
+
+
+class PublicOnlyTransport(httpx.HTTPTransport):
+    """An httpx transport that reaches only public addresses (see `_PublicOnlyBackend`)."""
+
+    def __init__(self, resolver: Resolver | None = None) -> None:
+        super().__init__()
+        self._pool = httpcore.ConnectionPool(
+            ssl_context=httpx.create_ssl_context(), network_backend=_PublicOnlyBackend(resolver or _resolve)
+        )
+
+
 def display_host(url: str) -> str:
-    return (urlsplit(url).hostname or "").lower()
+    parts = split_url(url)
+    return ((parts.hostname if parts else None) or "").lower()
 
 
 @dataclass(frozen=True)
@@ -107,13 +158,22 @@ def deliver(
     signing_secret: str | None,
     alert: Alert,
     client_factory: Callable[[], httpx.Client] | None = None,
+    *,
+    allow_private: bool = False,
 ) -> str:
     """Sends one alert. Returns a short status for the channel's "last delivery" (never raises)."""
     body = json.dumps(payload(kind, alert), separators=(",", ":")).encode("utf-8")
     headers = {"Content-Type": "application/json", "User-Agent": "CloudBridge-Alerts/1", EVENT_HEADER: alert.event}
     if signing_secret:
         headers[SIGNATURE_HEADER] = sign(signing_secret, body)
-    factory = client_factory or (lambda: httpx.Client(timeout=TIMEOUT, follow_redirects=False))
+    factory = client_factory or (
+        lambda: httpx.Client(
+            timeout=TIMEOUT,
+            follow_redirects=False,
+            # Development only (refused in production): a local test receiver.
+            transport=None if allow_private else PublicOnlyTransport(),
+        )
+    )
     try:
         with factory() as client:
             response = client.post(url, content=body, headers=headers)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -17,10 +18,12 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import Match
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app import readiness
 from app.api.deps import bearer_token
 from app.config import Settings
 from app.db import Database
 from app.errors import ApiError, FieldError
+from app.logs import configure_logging
 from app.providers.aws import AwsAppRunnerAdapter
 from app.providers.azure import AzureContainerAppsAdapter
 from app.providers.base import ProviderRegistry
@@ -36,6 +39,7 @@ from app.worker import Worker
 from app.worker.notify import Notifier
 
 logger = logging.getLogger("cloudbridge")
+access_logger = logging.getLogger("cloudbridge.access")
 
 API_PREFIX = "/api/v1"
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -135,19 +139,37 @@ def _field_path(loc: Any) -> str:
     return ".".join(parts)
 
 
-class BodySizeLimit:
-    """Rejects request bodies larger than the limit, including chunked bodies without Content-Length."""
+class BodyTooLarge(ApiError):
+    def __init__(self) -> None:
+        super().__init__(413, "payload_too_large", "The request body is too large.")
 
-    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+
+def _is_body_too_large(exc: BaseException) -> bool:
+    """True for BodyTooLarge, also when it arrives wrapped in an exception group (Starlette's middleware runs the
+    endpoint in a task group, so an error raised while the endpoint reads the body comes out wrapped)."""
+    if isinstance(exc, BodyTooLarge):
+        return True
+    return isinstance(exc, BaseExceptionGroup) and exc.subgroup(BodyTooLarge) is not None
+
+
+class BodySizeLimit:
+    """Rejects request bodies larger than the limit, including chunked bodies without Content-Length.
+    GitHub webhook deliveries (under `webhook_prefix`) get their own, larger limit."""
+
+    def __init__(self, app: ASGIApp, max_bytes: int, webhook_max_bytes: int, webhook_prefix: str) -> None:
         self.app = app
         self.max_bytes = max_bytes
+        self.webhook_max_bytes = webhook_max_bytes
+        self.webhook_prefix = webhook_prefix
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        path = str(scope.get("path", ""))
+        limit = self.webhook_max_bytes if path.startswith(self.webhook_prefix) else self.max_bytes
         for name, value in scope.get("headers", []):
-            if name == b"content-length" and value.isdigit() and int(value) > self.max_bytes:
+            if name == b"content-length" and value.isdigit() and int(value) > limit:
                 await self._reject(scope, send)
                 return
         received = 0
@@ -157,11 +179,24 @@ class BodySizeLimit:
             message = await receive()
             if message["type"] == "http.request":
                 received += len(message.get("body", b""))
-                if received > self.max_bytes:
-                    raise ApiError(413, "payload_too_large", "The request body is too large.")
+                if received > limit:
+                    raise BodyTooLarge()
             return message
 
-        await self.app(scope, limited_receive, send)
+        response_started = False
+
+        async def tracked_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, limited_receive, tracked_send)
+        except BaseException as exc:
+            if response_started or not _is_body_too_large(exc):
+                raise
+            await self._reject(scope, send)
 
     async def _reject(self, scope: Scope, send: Send) -> None:
         response = JSONResponse(
@@ -173,6 +208,11 @@ class BodySizeLimit:
                     "request_id": None,
                     "fields": [],
                 }
+            },
+            headers={
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
             },
         )
         await response(scope, _noop_receive, send)
@@ -201,8 +241,9 @@ def create_app(
     provider_registry: ProviderRegistry | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
-    logging.basicConfig(level=settings.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    configure_logging(settings)
     db = database or Database(settings.database_url)
+    schema_versions = readiness.schema_versions()
     registry = provider_registry or default_providers(settings)
     notifier = Notifier(settings, db)
 
@@ -259,6 +300,9 @@ def create_app(
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        if exc.__cause__ is not None and _is_body_too_large(exc.__cause__):
+            # FastAPI reports any failure while reading a typed body as a 400 "error parsing the body".
+            return error_response(request, 413, "payload_too_large", "The request body is too large.")
         code = STATUS_CODES.get(exc.status_code, "error")
         message = {
             404: "The requested resource was not found.",
@@ -284,7 +328,10 @@ def create_app(
         is_api = path.startswith(API_PREFIX)
 
         response: Response
-        if is_api and settings.maintenance_mode and path != f"{API_PREFIX}/health":
+        started = time.perf_counter()
+        # Probes answer during maintenance too: taking every instance out of the load balancer would replace
+        # the maintenance message with the load balancer's own error page.
+        if is_api and settings.maintenance_mode and path not in (f"{API_PREFIX}/health", f"{API_PREFIX}/ready"):
             response = error_response(
                 request, 503, "maintenance", "CloudBridge is undergoing maintenance.", headers={"Retry-After": "300"}
             )
@@ -325,11 +372,39 @@ def create_app(
                     httponly=False,
                     samesite="lax",
                 )
+        if is_api and path not in (f"{API_PREFIX}/health", f"{API_PREFIX}/ready"):
+            # The path only: query strings are not logged.
+            access_logger.info(
+                "%s %s %s",
+                request.method,
+                path,
+                response.status_code,
+                extra={
+                    "request_id": request.state.request_id,
+                    "method": request.method,
+                    "path": path,
+                    "status": response.status_code,
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+                },
+            )
         return response
 
     @app.get(f"{API_PREFIX}/health", include_in_schema=False)
     def health() -> dict[str, str]:
+        """Liveness: the process answers. It does not touch the database, so a database outage does not get
+        every API process restarted."""
         return {"status": "ok"}
+
+    @app.get(f"{API_PREFIX}/ready", include_in_schema=False)
+    def ready(request: Request) -> JSONResponse:
+        """Readiness: send traffic here only when the database answers, its schema matches this release and
+        (when it runs in this process) the worker is running."""
+        worker: Worker | None = request.app.state.worker
+        checks = readiness.check(db, schema_versions, None if worker is None else worker.alive)
+        ok = readiness.passing(checks)
+        return JSONResponse(
+            status_code=200 if ok else 503, content={"status": "ready" if ok else "not_ready", "checks": checks}
+        )
 
     for router in (
         auth.router,
@@ -345,7 +420,12 @@ def create_app(
     ):
         app.include_router(router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
 
-    app.add_middleware(BodySizeLimit, max_bytes=settings.max_body_bytes)
+    app.add_middleware(
+        BodySizeLimit,
+        max_bytes=settings.max_body_bytes,
+        webhook_max_bytes=settings.max_webhook_body_bytes,
+        webhook_prefix=f"{API_PREFIX}/hooks/",
+    )
     if settings.cors_origin_list:
         app.add_middleware(
             CORSMiddleware,

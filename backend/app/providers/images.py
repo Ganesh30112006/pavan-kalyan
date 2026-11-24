@@ -11,11 +11,11 @@ import hashlib
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from urllib.parse import urlsplit
 
 import httpx
 
 from app.providers.base import ProviderError, ResolvedImage
+from app.urls import split_url
 
 DIGEST = re.compile(r"(?a)^sha256:[a-f0-9]{64}$")
 MANIFEST_TYPES = ", ".join(
@@ -122,8 +122,8 @@ class OciResolver:
             )
         params = dict(_AUTH_PARAM.findall(challenge))
         realm = params.pop("realm", "")
-        parts = urlsplit(realm)
-        if parts.scheme != "https" or not parts.hostname or not self._realm_allowed(parts.hostname):
+        parts = split_url(realm)
+        if parts is None or parts.scheme != "https" or not parts.hostname or not self._realm_allowed(parts.hostname):
             raise ProviderError(
                 "image_access_denied", "The image registry asked for authentication at an unexpected address."
             )

@@ -99,7 +99,7 @@ export function LoginPage() {
           <form className="auth-card" onSubmit={onSubmit} noValidate aria-labelledby="login-title">
             <div className="auth-card__header">
               <h1 id="login-title">Sign in</h1>
-              <p className="text-muted">Manage applications across AWS App Runner and Google Cloud Run.</p>
+              <p className="text-muted">Deploy and manage containerized applications on AWS, Azure, Google Cloud and Kubernetes.</p>
             </div>
 
             {state.reason === 'expired' && (

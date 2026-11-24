@@ -44,9 +44,10 @@ def verify_password(password: str, encoded: str) -> bool:
             maxmem=_SCRYPT_MAXMEM,
             dklen=64,
         )
-    except (ValueError, TypeError):
+        stored = base64.b64decode(expected, validate=True)
+    except (ValueError, TypeError):  # binascii.Error is a ValueError
         return False
-    return hmac.compare_digest(digest, base64.b64decode(expected))
+    return hmac.compare_digest(digest, stored)
 
 
 # Verified against when the e-mail is unknown, so both cases take the same time.

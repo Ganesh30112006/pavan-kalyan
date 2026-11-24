@@ -115,7 +115,7 @@ class AwsEcsExpressAdapter(AwsAppRunnerAdapter):
             client.list_clusters(maxResults=1)
 
     def _cluster_exists(self, client: Any, conn: ConnectionInfo) -> bool:
-        clusters = client.describe_clusters(clusters=[self._cluster(conn)]).get("clusters", [])
+        clusters = client.describe_clusters(clusters=[self._cluster(conn)]).get("clusters") or []
         return any(c.get("status") == "ACTIVE" for c in clusters)
 
     def check_access(self, conn: ConnectionInfo) -> None:
@@ -170,7 +170,7 @@ class AwsEcsExpressAdapter(AwsAppRunnerAdapter):
 
     def _find_ecs_service(self, client: Any, conn: ConnectionInfo, name: str, app_id: str) -> str | None:
         try:
-            described = client.describe_services(cluster=self._cluster(conn), services=[name]).get("services", [])
+            described = client.describe_services(cluster=self._cluster(conn), services=[name]).get("services") or []
         except ClientError as error:
             if _error_code(error) == "ClusterNotFoundException":
                 return None
@@ -179,7 +179,7 @@ class AwsEcsExpressAdapter(AwsAppRunnerAdapter):
             if service.get("status") != "ACTIVE":
                 continue
             arn = str(service["serviceArn"])
-            tags = client.list_tags_for_resource(resourceArn=arn).get("tags", [])
+            tags = client.list_tags_for_resource(resourceArn=arn).get("tags") or []
             if not any(t.get("key") == APP_TAG_KEY and t.get("value") == app_id for t in tags):
                 raise ProviderError(
                     "service_name_taken",
@@ -196,10 +196,10 @@ class AwsEcsExpressAdapter(AwsAppRunnerAdapter):
         try:
             client = self._ecs(conn)
             arn = app.provider_service_id or self._find_ecs_service(client, conn, app.name, app.id)
-            if arn is not None:
-                current = client.describe_express_gateway_service(serviceArn=arn).get("service", {})
-                if (current.get("status") or {}).get("statusCode") != "ACTIVE":
-                    arn = None
+            current = self._active_service(client, arn) if arn is not None else None
+            if current is None:
+                # Never created, or deleted outside CloudBridge (or still being deleted): create the service.
+                arn = None
             if arn is None:
                 response = client.create_express_gateway_service(
                     serviceName=app.name,
@@ -224,16 +224,34 @@ class AwsEcsExpressAdapter(AwsAppRunnerAdapter):
             raise translate(error) from None
         except Exception as error:  # noqa: BLE001
             raise translate(error) from None
-        service = response.get("service", {})
+        service = response.get("service") or {}
         return {
             "service_id": str(service.get("serviceArn") or arn),
+            # CreateExpressGatewayService returns the new deployment; UpdateExpressGatewayService does not, so the
+            # deployment that was current before the update is kept to tell it apart from the new one.
             "deployment": service.get("currentDeployment"),
+            "previous_deployment": (current or {}).get("currentDeployment"),
             "image": image.pinned,
         }
 
+    @staticmethod
+    def _active_service(client: Any, arn: str) -> dict[str, Any] | None:
+        """The service when it exists and is active, else None."""
+        try:
+            current: dict[str, Any] = client.describe_express_gateway_service(serviceArn=arn).get("service") or {}
+        except ClientError as error:
+            if _error_code(error) in (
+                "ServiceNotFoundException",
+                "ResourceNotFoundException",
+                "ClusterNotFoundException",
+            ):
+                return None
+            raise
+        return current if (current.get("status") or {}).get("statusCode") == "ACTIVE" else None
+
     def _deployment_status(self, client: Any, deployment_arn: str) -> tuple[str | None, str | None]:
         found = client.describe_service_deployments(serviceDeploymentArns=[deployment_arn])
-        items = found.get("serviceDeployments", [])
+        items = found.get("serviceDeployments") or []
         if not items:
             return None, None
         item = items[0]
@@ -243,9 +261,16 @@ class AwsEcsExpressAdapter(AwsAppRunnerAdapter):
         arn = str(handle["service_id"])
         try:
             client = self._ecs(conn)
-            service = client.describe_express_gateway_service(serviceArn=arn).get("service", {})
+            service = client.describe_express_gateway_service(serviceArn=arn).get("service") or {}
             deployment = handle.get("deployment") or service.get("currentDeployment")
             if not deployment:
+                return RolloutStatus(state="running", service_id=arn)
+            if (
+                not handle.get("deployment")
+                and deployment == handle.get("previous_deployment")
+                and self._image(service) != handle.get("image")
+            ):
+                # ECS has not started the deployment of the new version yet: the current one still runs the old.
                 return RolloutStatus(state="running", service_id=arn)
             handle["deployment"] = deployment
             status, reason = self._deployment_status(client, str(deployment))
@@ -271,9 +296,13 @@ class AwsEcsExpressAdapter(AwsAppRunnerAdapter):
 
     @staticmethod
     def _active(service: dict[str, Any]) -> dict[str, Any]:
-        configurations = service.get("activeConfigurations") or [{}]
+        configurations = [c for c in service.get("activeConfigurations") or [] if isinstance(c, dict)] or [{}]
         latest: dict[str, Any] = max(configurations, key=lambda c: str(c.get("createdAt") or ""))
         return latest
+
+    def _image(self, service: dict[str, Any]) -> str | None:
+        image = (self._active(service).get("primaryContainer") or {}).get("image")
+        return str(image) if image else None
 
     def _url(self, service: dict[str, Any]) -> str | None:
         for path in self._active(service).get("ingressPaths") or []:
@@ -288,8 +317,8 @@ class AwsEcsExpressAdapter(AwsAppRunnerAdapter):
         scaling = config.get("scalingTarget") or {}
         return EffectiveConfig(
             port=int(container.get("containerPort") or 80),
-            cpu=_cpu_from_units(str(config.get("cpu", "1024"))),
-            memory=_memory_from_mib(str(config.get("memory", "2048"))),
+            cpu=_cpu_from_units(str(config.get("cpu") or "1024")),
+            memory=_memory_from_mib(str(config.get("memory") or "2048")),
             min_instances=int(scaling.get("minTaskCount") or 1),
             max_instances=int(scaling.get("maxTaskCount") or 1),
             concurrency=None,
@@ -302,7 +331,7 @@ class AwsEcsExpressAdapter(AwsAppRunnerAdapter):
             return ServiceState(running=False, message="The service does not exist.")
         try:
             client = self._ecs(conn)
-            service = client.describe_express_gateway_service(serviceArn=app.provider_service_id).get("service", {})
+            service = client.describe_express_gateway_service(serviceArn=app.provider_service_id).get("service") or {}
             code = (service.get("status") or {}).get("statusCode")
             if code != "ACTIVE":
                 return ServiceState(running=False, message=f"ECS reports the service as {str(code).lower()}.")
@@ -339,7 +368,7 @@ class AwsEcsExpressAdapter(AwsAppRunnerAdapter):
             return self._deleted(conn, handle)
         try:
             service = (
-                self._ecs(conn).describe_express_gateway_service(serviceArn=handle["service_id"]).get("service", {})
+                self._ecs(conn).describe_express_gateway_service(serviceArn=handle["service_id"]).get("service") or {}
             )
         except ClientError as error:
             if _error_code(error) in ("ServiceNotFoundException", "ResourceNotFoundException"):
@@ -358,7 +387,8 @@ class AwsEcsExpressAdapter(AwsAppRunnerAdapter):
             return [], False
         try:
             service = (
-                self._ecs(conn).describe_express_gateway_service(serviceArn=app.provider_service_id).get("service", {})
+                self._ecs(conn).describe_express_gateway_service(serviceArn=app.provider_service_id).get("service")
+                or {}
             )
             logging_config = (self._active(service).get("primaryContainer") or {}).get("awsLogsConfiguration") or {}
             group = logging_config.get("logGroup")
@@ -370,7 +400,7 @@ class AwsEcsExpressAdapter(AwsAppRunnerAdapter):
             kwargs: dict[str, Any] = {"logGroupName": group, "startTime": start, "limit": 500}
             for _ in range(4):
                 page = client.filter_log_events(**kwargs)
-                events.extend(page.get("events", []))
+                events.extend(page.get("events") or [])
                 token = page.get("nextToken")
                 if not token:
                     break
@@ -386,7 +416,7 @@ class AwsEcsExpressAdapter(AwsAppRunnerAdapter):
             RuntimeLogEntry(
                 timestamp=dt.datetime.fromtimestamp(int(e["timestamp"]) / 1000, dt.UTC),
                 stream="stdout",
-                message=log_line(str(e.get("message", ""))),
+                message=log_line(str(e.get("message") or "")),
             )
             for e in events[-limit:]
             if "timestamp" in e
@@ -411,7 +441,7 @@ class AwsEcsExpressAdapter(AwsAppRunnerAdapter):
         count = 0 if paused else max(app.min_instances, 1)
         try:
             client = self._ecs(conn)
-            service = client.describe_express_gateway_service(serviceArn=app.provider_service_id).get("service", {})
+            service = client.describe_express_gateway_service(serviceArn=app.provider_service_id).get("service") or {}
             scaling = dict(self._active(service).get("scalingTarget") or {})
             scaling["minTaskCount"] = count
             if not paused:

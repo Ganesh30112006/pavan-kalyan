@@ -155,8 +155,8 @@ def translate(error: Exception, *, assuming_role: bool = False) -> ProviderError
     if isinstance(error, EndpointConnectionError):
         return ProviderError("provider_unavailable", "AWS could not be reached.", retryable=True)
     if isinstance(error, ClientError):
-        code = str(error.response.get("Error", {}).get("Code", ""))
-        raw = str(error.response.get("Error", {}).get("Message", ""))
+        code = str((error.response.get("Error") or {}).get("Code", ""))
+        raw = str((error.response.get("Error") or {}).get("Message", ""))
         if assuming_role and (code in ACCESS_DENIED or code in BAD_TOKEN):
             return ProviderError(
                 "invalid_credentials",
@@ -194,7 +194,7 @@ def translate(error: Exception, *, assuming_role: bool = False) -> ProviderError
 
 
 def _error_code(error: ClientError) -> str:
-    return str(error.response.get("Error", {}).get("Code", ""))
+    return str((error.response.get("Error") or {}).get("Code", ""))
 
 
 def _partition(conn: ConnectionInfo) -> str:
@@ -453,7 +453,7 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
 
     def poll_build(self, conn: ConnectionInfo, handle: dict[str, Any]) -> BuildStatus:
         try:
-            builds = self._codebuild(conn).batch_get_builds(ids=[handle["build_id"]]).get("builds", [])
+            builds = self._codebuild(conn).batch_get_builds(ids=[handle["build_id"]]).get("builds") or []
         except Exception as error:  # noqa: BLE001
             raise translate(error) from None
         if not builds:
@@ -464,7 +464,7 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
             return BuildStatus(state="running")
         lines = self._build_logs(conn, build)
         if status == "SUCCEEDED":
-            exported = {v.get("name"): v.get("value") for v in build.get("exportedEnvironmentVariables", [])}
+            exported = {v.get("name"): v.get("value") for v in (build.get("exportedEnvironmentVariables") or [])}
             digest = exported.get("IMAGE_DIGEST")
             if not is_digest(digest):
                 return BuildStatus(
@@ -481,7 +481,7 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
         if status == "STOPPED":
             return BuildStatus(state="cancelled", message="The build was stopped.", log_lines=lines)
         message = "The image build failed. See the build logs for details."
-        for phase in build.get("phases", []):
+        for phase in build.get("phases") or []:
             if phase.get("phaseStatus") in ("FAILED", "FAULT", "TIMED_OUT"):
                 contexts = phase.get("contexts") or [{}]
                 detail = str(contexts[0].get("message") or "")
@@ -500,13 +500,13 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
             events = (
                 self._client(conn, "logs")
                 .get_log_events(logGroupName=group, logStreamName=stream, limit=300, startFromHead=False)
-                .get("events", [])
-            )
+                .get("events")
+            ) or []
         except Exception:  # noqa: BLE001 - logs are best effort; the build result is what matters
             logger.info("Could not read CodeBuild logs", extra={"connection_id": conn.id})
             return []
         return [
-            (dt.datetime.fromtimestamp(e["timestamp"] / 1000, dt.UTC), log_line(str(e.get("message", ""))))
+            (dt.datetime.fromtimestamp(e["timestamp"] / 1000, dt.UTC), log_line(str(e.get("message") or "")))
             for e in events
             if "timestamp" in e
         ]
@@ -552,9 +552,11 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
         concurrency = spec.concurrency or APP_RUNNER_DEFAULT_CONCURRENCY
         name = f"cloudbridge-{min_size}-{max_size}-{concurrency}"
         existing = client.list_auto_scaling_configurations(AutoScalingConfigurationName=name, LatestOnly=True)
-        for summary in existing.get("AutoScalingConfigurationSummaryList", []):
+        for summary in existing.get("AutoScalingConfigurationSummaryList") or []:
             # The live API returns "active" although the service model documents "ACTIVE".
-            if str(summary.get("Status", "active")).lower() == "active" and summary.get("AutoScalingConfigurationArn"):
+            if str(summary.get("Status") or "active").lower() == "active" and summary.get(
+                "AutoScalingConfigurationArn"
+            ):
                 return str(summary["AutoScalingConfigurationArn"])
 
         def create() -> str:
@@ -582,10 +584,10 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
         kwargs: dict[str, Any] = {"MaxResults": 100}
         for _ in range(20):
             page = client.list_auto_scaling_configurations(**kwargs)
-            for summary in page.get("AutoScalingConfigurationSummaryList", []):
+            for summary in page.get("AutoScalingConfigurationSummaryList") or []:
                 if (
-                    str(summary.get("AutoScalingConfigurationName", "")).startswith("cloudbridge-")
-                    and str(summary.get("Status", "active")).lower() == "active"
+                    str(summary.get("AutoScalingConfigurationName") or "").startswith("cloudbridge-")
+                    and str(summary.get("Status") or "active").lower() == "active"
                     and summary.get("HasAssociatedService") is False
                     and not summary.get("IsDefault")
                     and summary.get("AutoScalingConfigurationArn")
@@ -609,10 +611,10 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
         kwargs: dict[str, Any] = {"MaxResults": 20}
         for _ in range(100):
             page = client.list_services(**kwargs)
-            for summary in page.get("ServiceSummaryList", []):
+            for summary in page.get("ServiceSummaryList") or []:
                 if summary.get("ServiceName") == name:
                     arn = str(summary["ServiceArn"])
-                    tags = client.list_tags_for_resource(ResourceArn=arn).get("Tags", [])
+                    tags = client.list_tags_for_resource(ResourceArn=arn).get("Tags") or []
                     if not any(t.get("Key") == APP_TAG_KEY and t.get("Value") == app_id for t in tags):
                         raise ProviderError(
                             "service_name_taken",
@@ -724,7 +726,7 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
         service_arn = str(handle["service_id"])
         try:
             client = self._apprunner(conn)
-            operations = client.list_operations(ServiceArn=service_arn, MaxResults=20).get("OperationSummaryList", [])
+            operations = client.list_operations(ServiceArn=service_arn, MaxResults=20).get("OperationSummaryList") or []
             operation = next((o for o in operations if o.get("Id") == handle["operation_id"]), None)
             status = operation.get("Status") if operation else None
             if status in (None, "PENDING", "IN_PROGRESS", "ROLLBACK_IN_PROGRESS"):
@@ -749,23 +751,23 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
         return RolloutStatus(state="failed", service_id=service_arn, service_url=url, message=message)
 
     def _effective(self, client: AppRunnerClient, service: Any) -> EffectiveConfig:
-        instance = service.get("InstanceConfiguration", {})
-        image = service.get("SourceConfiguration", {}).get("ImageRepository", {})
-        health = service.get("HealthCheckConfiguration", {})
-        ingress = service.get("NetworkConfiguration", {}).get("IngressConfiguration", {})
-        scaling_arn = service.get("AutoScalingConfigurationSummary", {}).get("AutoScalingConfigurationArn")
+        instance = service.get("InstanceConfiguration") or {}
+        image = (service.get("SourceConfiguration") or {}).get("ImageRepository") or {}
+        health = service.get("HealthCheckConfiguration") or {}
+        ingress = (service.get("NetworkConfiguration") or {}).get("IngressConfiguration") or {}
+        scaling_arn = (service.get("AutoScalingConfigurationSummary") or {}).get("AutoScalingConfigurationArn")
         min_size, max_size, concurrency = 1, 25, APP_RUNNER_DEFAULT_CONCURRENCY
         if scaling_arn:
             scaling = client.describe_auto_scaling_configuration(AutoScalingConfigurationArn=scaling_arn)[
                 "AutoScalingConfiguration"
             ]
-            min_size = int(scaling.get("MinSize", min_size))
-            max_size = int(scaling.get("MaxSize", max_size))
-            concurrency = int(scaling.get("MaxConcurrency", concurrency))
+            min_size = int(scaling.get("MinSize") or min_size)
+            max_size = int(scaling.get("MaxSize") or max_size)
+            concurrency = int(scaling.get("MaxConcurrency") or concurrency)
         return EffectiveConfig(
-            port=int(image.get("ImageConfiguration", {}).get("Port", "8080")),
-            cpu=_cpu_from_units(str(instance.get("Cpu", "1024"))),
-            memory=_memory_from_units(str(instance.get("Memory", "2048"))),
+            port=int((image.get("ImageConfiguration") or {}).get("Port") or "8080"),
+            cpu=_cpu_from_units(str(instance.get("Cpu") or "1024")),
+            memory=_memory_from_units(str(instance.get("Memory") or "2048")),
             min_instances=min_size,
             max_instances=max_size,
             concurrency=concurrency,
@@ -810,7 +812,7 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
         try:
             ecr = self._ecr(conn)
             repositories = ecr.describe_repositories(repositoryNames=[str(build["repository"])])["repositories"]
-            tags = ecr.list_tags_for_resource(resourceArn=repositories[0]["repositoryArn"]).get("tags", [])
+            tags = ecr.list_tags_for_resource(resourceArn=repositories[0]["repositoryArn"]).get("tags") or []
             if any(t.get("Key") == APP_TAG_KEY and t.get("Value") == app_id for t in tags):
                 ecr.delete_repository(repositoryName=str(build["repository"]), force=True)
         except ClientError as error:
@@ -820,9 +822,9 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
             logger.warning("ECR repository left in place", extra={"error_type": type(error).__name__})
         try:
             codebuild = self._codebuild(conn)
-            projects = codebuild.batch_get_projects(names=[str(build["project"])]).get("projects", [])
+            projects = codebuild.batch_get_projects(names=[str(build["project"])]).get("projects") or []
             if projects:
-                project_tags = {t.get("key"): t.get("value") for t in projects[0].get("tags", [])}
+                project_tags = {t.get("key"): t.get("value") for t in (projects[0].get("tags") or [])}
                 # Projects created before the application tag was added carry only managed-by.
                 if project_tags.get("managed-by") == "cloudbridge" and project_tags.get(APP_TAG_KEY, app_id) == app_id:
                     codebuild.delete_project(name=str(build["project"]))
@@ -889,7 +891,7 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
             kwargs: dict[str, Any] = {"logGroupName": group, "startTime": start, "limit": 500}
             for _ in range(4):
                 page = client.filter_log_events(**kwargs)
-                events.extend(page.get("events", []))
+                events.extend(page.get("events") or [])
                 token = page.get("nextToken")
                 if not token:
                     break
@@ -905,7 +907,7 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
             RuntimeLogEntry(
                 timestamp=dt.datetime.fromtimestamp(int(e["timestamp"]) / 1000, dt.UTC),
                 stream="stdout",
-                message=log_line(str(e.get("message", ""))),
+                message=log_line(str(e.get("message") or "")),
             )
             for e in events[-limit:]
             if "timestamp" in e
@@ -954,7 +956,7 @@ class AwsAppRunnerAdapter(ExtrasNotSupported):
             kwargs: dict[str, Any] = {"ServiceArn": app.provider_service_id, "MaxResults": 5}
             for _ in range(20):
                 page = client.describe_custom_domains(**kwargs)
-                for item in page.get("CustomDomains", []):
+                for item in page.get("CustomDomains") or []:
                     if item.get("DomainName") == domain:
                         return _domain_state(item, str(page.get("DNSTarget") or ""), domain)
                 token = page.get("NextToken")
@@ -1044,9 +1046,9 @@ def cloudwatch_series(
         }
         for _ in range(10):
             page = client.get_metric_data(**kwargs)
-            for result in page.get("MetricDataResults", []):
+            for result in page.get("MetricDataResults") or []:
                 points = values.setdefault(str(result.get("Id")), [])
-                for stamp, value in zip(result.get("Timestamps", []), result.get("Values", []), strict=False):
+                for stamp, value in zip(result.get("Timestamps") or [], result.get("Values") or [], strict=False):
                     points.append(MetricPoint(timestamp=clock.as_utc(stamp), value=float(value)))
             token = page.get("NextToken")
             if not token:
@@ -1067,13 +1069,13 @@ def _domain_state(item: Any, dns_target: str, domain: str) -> DomainState:
     for record in item.get("CertificateValidationRecords") or []:
         records.append(
             DnsRecord(
-                type=str(record.get("Type", "CNAME")),
-                name=str(record.get("Name", "")),
-                value=str(record.get("Value", "")),
+                type=str(record.get("Type") or "CNAME"),
+                name=str(record.get("Name") or ""),
+                value=str(record.get("Value") or ""),
                 purpose="Proves you own the domain so App Runner can issue its certificate",
             )
         )
-    status = str(item.get("Status", "")).lower()
+    status = str(item.get("Status") or "").lower()
     if status == "active":
         return DomainState(status="active", records=records)
     if status == "binding_certificate":

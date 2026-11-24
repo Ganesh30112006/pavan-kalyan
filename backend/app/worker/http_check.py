@@ -6,9 +6,10 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
-from urllib.parse import urlsplit
 
 import httpx
+
+from app.urls import split_url
 
 SLOW_SECONDS = 5.0
 
@@ -28,10 +29,10 @@ def check(
     client_factory: Callable[[], httpx.Client] | None = None,
     allow_http: bool = False,
 ) -> HttpResult:
-    parts = urlsplit(url)
-    host = parts.hostname or ""
+    parts = split_url(url)
+    host = (parts.hostname if parts else None) or ""
     schemes = ("https", "http") if allow_http else ("https",)
-    if parts.scheme not in schemes or not host or not host_allowed(host):
+    if parts is None or parts.scheme not in schemes or not host or not host_allowed(host):
         return HttpResult("failed", "The service address is not one CloudBridge can check.")
     target = f"{parts.scheme}://{parts.netloc}{path or '/'}"
     factory = client_factory or (lambda: httpx.Client(timeout=10.0, follow_redirects=False))

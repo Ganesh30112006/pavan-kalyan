@@ -10,6 +10,8 @@ import socket
 from collections.abc import Callable
 from urllib.parse import urlsplit
 
+from app.urls import split_url
+
 APPLICATION_NAME = re.compile(r"(?a)^[a-z][a-z0-9-]*[a-z0-9]$")
 IMAGE_REFERENCE = re.compile(
     r"(?a)^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::\d+)?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+(?::[\w][\w.-]{0,127})?(?:@sha256:[a-f0-9]{64})?$"
@@ -142,7 +144,10 @@ def _is_ip(host: str) -> bool:
 
 def repository_host_is_public(url: str, resolver: Callable[[str], list[str]] | None = None) -> str | None:
     """Resolves the repository host and rejects private, loopback, link-local and reserved addresses."""
-    host = urlsplit(url).hostname or ""
+    parts = split_url(url)
+    host = (parts.hostname if parts else None) or ""
+    if not host:
+        return "The repository host name could not be resolved."
     resolve = resolver or _resolve
     try:
         addresses = resolve(host)
@@ -290,8 +295,15 @@ def ecs_cluster(value: str) -> str | None:
 
 
 def kubernetes_api_server(value: str, resolver: Callable[[str], list[str]] | None = None) -> str | None:
-    parts = urlsplit(value)
-    if parts.scheme != "https" or not parts.hostname or parts.username or parts.password or parts.query:
+    parts = split_url(value)
+    if (
+        parts is None
+        or parts.scheme != "https"
+        or not parts.hostname
+        or parts.username
+        or parts.password
+        or parts.query
+    ):
         return "Enter the cluster's API server address, e.g. https://my-cluster-dns-abc123.hcp.eastus.azmk8s.io:443"
     # CloudBridge calls this address, so it must be a public one (the same guard as repository hosts).
     return repository_host_is_public(f"https://{parts.hostname}/", resolver)
