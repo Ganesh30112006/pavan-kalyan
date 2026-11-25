@@ -58,7 +58,9 @@ app on the same origin (`CLOUDBRIDGE_STATIC_DIR`).
 The pipeline runs these steps:
 
 1. GitHub signs in to AWS with OIDC as `cloudbridge-github-deploy`. That role trusts only this repository's
-   `main` branch, and GitHub stores no AWS keys.
+   `main` branch, and GitHub stores no AWS keys. GitHub's token subject carries immutable owner and repository
+   IDs (`repo:Ganesh30112006@204135162/pavan-kalyan@1435137913:ref:refs/heads/main`), and the trust policy
+   matches that exact string. A fork, or a new repository given the same name, cannot deploy.
 2. It builds `deploy/aws/Dockerfile` and pushes the image to the ECR repository `cloudbridge-app`.
 3. `deploy/aws/deploy.py` creates or updates the ECS Express Mode service `cloudbridge`, using the image pinned
    by digest and the settings in `deploy/aws/service.json`. It waits until the new image serves; if ECS rolls

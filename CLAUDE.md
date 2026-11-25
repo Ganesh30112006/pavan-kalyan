@@ -235,6 +235,8 @@ Root cannot assume roles, and the safety classifier blocks creating access keys.
 - Migrations must run on PostgreSQL too: boolean `server_default` needs `false` there (`0` broke 0003 until
   2026-11-24). Parse URLs with `app.urls.split_url` (urlsplit raises on `https://[::1`), and alert webhooks go
   through `PublicOnlyTransport` (IP pinned after the public-address check, against DNS rebinding).
+- GitHub OIDC tokens now use subjects with immutable IDs (`repo:Owner@<id>/repo@<id>:ref:refs/heads/main`); an IAM
+  trust on the old `repo:Owner/repo:ref:…` form is refused. CloudTrail `AssumeRoleWithWebIdentity` shows the real subject.
 - Production operation (2026-11-25): `/api/v1/health` = liveness, `/api/v1/ready` = readiness (DB, schema vs Alembic
   heads, in-process worker). Schema `newer` passes on purpose (rolling upgrades), so **migrations must stay additive
   while two releases overlap**. The web nginx resolves the API name at request time (`resolver`, variable
