@@ -1,0 +1,88 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EcrLogin",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Sid": "PushImage",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:PutImage",
+        "ecr:DescribeImages"
+      ],
+      "Resource": "arn:aws:ecr:ap-south-1:492462083767:repository/cloudbridge-app"
+    },
+    {
+      "Sid": "DeployService",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:CreateExpressGatewayService",
+        "ecs:UpdateExpressGatewayService",
+        "ecs:DescribeExpressGatewayService",
+        "ecs:CreateCluster",
+        "ecs:RegisterTaskDefinition",
+        "ecs:DeregisterTaskDefinition",
+        "ecs:DescribeTaskDefinition",
+        "ecs:CreateService",
+        "ecs:UpdateService",
+        "ecs:DescribeServices",
+        "ecs:ListServices",
+        "ecs:DescribeServiceDeployments",
+        "ecs:ListServiceDeployments",
+        "ecs:ListClusters",
+        "ecs:DescribeClusters",
+        "ecs:TagResource",
+        "ecs:ListTagsForResource"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-1"
+        }
+      }
+    },
+    {
+      "Sid": "PassServiceRoles",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": [
+        "arn:aws:iam::492462083767:role/cloudbridge-platform",
+        "arn:aws:iam::492462083767:role/cloudbridge-platform-execution",
+        "arn:aws:iam::492462083767:role/cloudbridge-platform-infrastructure"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": [
+            "ecs-tasks.amazonaws.com",
+            "ecs.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ServiceLinkedRoles",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": [
+            "ecs.amazonaws.com",
+            "ecs.application-autoscaling.amazonaws.com",
+            "elasticloadbalancing.amazonaws.com"
+          ]
+        }
+      }
+    }
+  ]
+}
