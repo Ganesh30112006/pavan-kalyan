@@ -20,10 +20,11 @@ from app.models import Organization, User, UserSession
 from app.schemas import LoginIn, SessionOut
 from app.security import CSRF_COOKIE, SESSION_COOKIE, dummy_verify, new_token, token_hash, verify_password
 from app.services import audit
+from app.validation import normalize_username
 
 router = APIRouter(prefix="/auth", tags=["session"])
 
-INVALID_LOGIN = "The e-mail address or password is incorrect."
+INVALID_LOGIN = "The e-mail address, username or password is incorrect."
 
 
 def set_session_cookie(response: Response, token: str, settings: Settings) -> None:
@@ -75,16 +76,24 @@ def login(
     body: LoginIn, request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
 ) -> JSONResponse:
     limiter = request.app.state.login_limiter
-    email = body.email.strip().lower()
+    # The sign-in name is an e-mail address or, without "@", a username.
+    name = body.email.strip()
+    by_email = "@" in name
+    login_key = name.lower() if by_email else normalize_username(name)
     ip = client_ip(request)
-    keys = (f"ip:{ip}", f"email:{email}")
+    keys = (f"ip:{ip}", f"login:{login_key}")
     wait = limiter.retry_after(*keys)
     if wait is not None:
         raise ApiError(
             429, "rate_limited", "Too many sign-in attempts. Try again later.", headers={"Retry-After": str(wait)}
         )
 
-    user = db.scalar(select(User).where(func.lower(User.email) == email)) if email else None
+    if not login_key:
+        user = None
+    elif by_email:
+        user = db.scalar(select(User).where(func.lower(User.email) == login_key))
+    else:
+        user = db.scalar(select(User).where(User.username == login_key))
     if user is None:
         dummy_verify(body.password)
         ok = False
@@ -105,10 +114,10 @@ def login(
                 request_id=request_id(request),
             )
             db.commit()
-        # Same response whether or not the e-mail exists.
+        # Same response whether or not the e-mail address or username exists.
         raise ApiError(401, "invalid_credentials", INVALID_LOGIN)
 
-    limiter.reset(f"email:{email}")
+    limiter.reset(f"login:{login_key}")
     organization = db.get(Organization, user.organization_id)
     if organization is None:
         raise ApiError(401, "invalid_credentials", INVALID_LOGIN)

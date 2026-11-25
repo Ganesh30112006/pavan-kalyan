@@ -5,6 +5,7 @@
     python -m app.cli create-user --email bob@example.com --name "Bob" --role developer --organization-id <id>
     python -m app.cli set-password --email ada@example.com
     python -m app.cli ensure-owner --email ada@example.com --name "Ada" --organization "Acme"
+    python -m app.cli set-username --email ada@example.com --username "Ada"   (sign in with "ada" too)
 
 The password is read from the terminal (or CLOUDBRIDGE_BOOTSTRAP_PASSWORD for automation); it is
 never accepted as a command-line argument, so it does not end up in shell history. ensure-owner is for
@@ -112,6 +113,25 @@ def ensure_owner(settings: Settings, args: argparse.Namespace) -> None:
     )
 
 
+def set_username(settings: Settings, args: argparse.Namespace) -> None:
+    """Sets (or with an empty --username, removes) the username a user can sign in with instead of the e-mail."""
+    wanted = validation.normalize_username(args.username)
+    if wanted and (problem := validation.username_problem(wanted)):
+        sys.exit(problem)
+    database = Database(settings.database_url)
+    with database.session() as db:
+        user = db.scalar(select(User).where(func.lower(User.email) == args.email.strip().lower()))
+        if user is None:
+            sys.exit("No user has this e-mail address.")
+        taken = db.scalar(select(User).where(User.username == wanted, User.id != user.id)) if wanted else None
+        if taken is not None:
+            sys.exit("Another user already has this username.")
+        user.username = wanted or None
+        db.commit()
+        print(f"{user.email} signs in with username '{wanted}'." if wanted else f"{user.email} has no username now.")
+    database.dispose()
+
+
 def set_password(settings: Settings, args: argparse.Namespace) -> None:
     database = Database(settings.database_url)
     with database.session() as db:
@@ -139,6 +159,9 @@ def main(argv: list[str] | None = None) -> None:
     where.add_argument("--organization-id", metavar="ID")
     reset = commands.add_parser("set-password", help="Set a user's password")
     reset.add_argument("--email", required=True)
+    naming = commands.add_parser("set-username", help="Set the username a user can sign in with")
+    naming.add_argument("--email", required=True)
+    naming.add_argument("--username", required=True, help='e.g. "Pavan Kalyan"; empty removes it')
     first = commands.add_parser("ensure-owner", help="Create the first owner if the database has no users")
     first.add_argument("--email", required=True)
     first.add_argument("--name", required=True)
@@ -153,6 +176,8 @@ def main(argv: list[str] | None = None) -> None:
         create_user(settings, args)
     elif args.command == "set-password":
         set_password(settings, args)
+    elif args.command == "set-username":
+        set_username(settings, args)
     elif args.command == "ensure-owner":
         ensure_owner(settings, args)
 

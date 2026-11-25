@@ -321,5 +321,24 @@ def pem_certificate(value: str) -> str | None:
     return "Paste the cluster's CA certificate (-----BEGIN CERTIFICATE----- …). Never paste a private key."
 
 
+_USERNAME = re.compile(r"(?a)^[a-z0-9][a-z0-9 ._-]{1,38}[a-z0-9]$")
+
+
+def normalize_username(value: str) -> str:
+    """The form usernames are stored and compared in: trimmed, single spaces, lower case."""
+    return " ".join(value.split()).lower()
+
+
+def username_problem(value: str) -> str | None:
+    """A username is 3 to 40 letters, digits, spaces, dots, hyphens or underscores, starting and ending with a
+    letter or digit. It never contains "@", so a sign-in name is always either an e-mail address or a username."""
+    if not _USERNAME.match(normalize_username(value)):
+        return (
+            "Use 3 to 40 letters, digits, spaces, dots, hyphens or underscores, starting and ending with a letter "
+            "or digit."
+        )
+    return None
+
+
 def looks_like_email(value: str) -> bool:
     return bool(re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", value))

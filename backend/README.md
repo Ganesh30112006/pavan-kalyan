@@ -55,6 +55,8 @@ Interactive API docs: http://localhost:8000/api/v1/docs (disabled in production 
 | `python -m app.cli migrate` | Create or upgrade the database schema |
 | `python -m app.cli create-user --email … --name … --role owner\|admin\|developer\|viewer (--new-organization NAME \| --organization-id ID)` | Create a user (password is prompted, or read from `CLOUDBRIDGE_BOOTSTRAP_PASSWORD`) |
 | `python -m app.cli set-password --email …` | Reset a password |
+| `python -m app.cli set-username --email … --username "Pavan Kalyan"` | Let a user sign in with a username instead of the e-mail (case and extra spaces ignored; empty removes it) |
+| `python -m app.cli ensure-owner --email … --name … --organization …` | Create the first owner only while the database has no users (container start-up) |
 | `uvicorn app.main:create_app --factory` | Run the API (with the worker, unless `CLOUDBRIDGE_RUN_WORKER=false`) |
 | `python -m app.worker` | Run the worker as a separate process (exits with status 1 if its loop stops, so a supervisor restarts it) |
 | `pytest` | Tests (330); `CLOUDBRIDGE_TEST_DATABASE_URL=postgresql+psycopg://…` runs them on PostgreSQL |
@@ -251,7 +253,7 @@ app/
                      Kubernetes, Entra federation, capabilities, image digests
   worker/            deployment state machine, connection validation, deletion, health checks, schedules,
                      domain refresh, deferred pushes, e-mail and alert notifications
-  cli.py             migrate / create-user / set-password
+  cli.py             migrate / create-user / set-password / set-username / ensure-owner
 migrations/          Alembic
 tests/               API, worker and adapter tests (botocore Stubber, recorded HTTP); no network
 ```

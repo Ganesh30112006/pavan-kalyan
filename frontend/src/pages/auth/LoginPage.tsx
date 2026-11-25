@@ -13,7 +13,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { ApiError } from '../../services/api/errors';
 import { safeInternalPath } from '../../utils/url';
-import { compose, email, maxLength, required } from '../../utils/validation';
+import { compose, maxLength, required, signInName } from '../../utils/validation';
 import '../../components/layout/layout.css';
 import './auth.css';
 
@@ -36,7 +36,7 @@ export function LoginPage() {
 
   const validators = useMemo(
     () => ({
-      email: compose(required('Email'), email, maxLength('Email', 254)),
+      email: compose(required('Email or username'), signInName, maxLength('Email or username', 254)),
       password: compose(required('Password'), maxLength('Password', 1024)),
     }),
     [],
@@ -65,12 +65,12 @@ export function LoginPage() {
     if (!result.error) return;
     const failure = result.error;
     if (failure.status === 401) {
-      // Do not reveal whether the email exists.
+      // Do not reveal whether the email address or username exists.
       setError(
         new ApiError({
           kind: 'http',
           status: 400,
-          serverMessage: 'The email or password is incorrect.',
+          serverMessage: 'The email address, username or password is incorrect.',
           requestId: failure.requestId,
           method: 'POST',
         }),
@@ -126,11 +126,12 @@ export function LoginPage() {
             <FormErrorSummary ref={summaryRef} error={error} fieldMessages={error ? [] : clientMessages} />
 
             <TextField
-              label="Email"
-              type="email"
+              label="Email or username"
+              type="text"
               name="email"
               autoComplete="username"
-              inputMode="email"
+              autoCapitalize="none"
+              spellCheck={false}
               required
               value={form.values.email}
               onChange={(e) => form.setValue('email', e.target.value)}

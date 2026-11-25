@@ -26,6 +26,13 @@ export function compose(...validators: Validator[]): Validator {
 export const email: Validator = (value) =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()) ? null : 'Enter a valid email address.';
 
+/** Sign-in name: an e-mail address, or (without "@") a username of 3–40 characters. */
+export const signInName: Validator = (value) => {
+  const trimmed = value.trim();
+  if (trimmed.includes('@')) return email(trimmed);
+  return trimmed.length >= 3 && trimmed.length <= 40 ? null : 'Enter your email address or username.';
+};
+
 /** Application names become service names on both providers: 3–40 chars, lowercase, hyphens. */
 export const applicationName: Validator = (value) => {
   if (!value) return 'Application name is required.';

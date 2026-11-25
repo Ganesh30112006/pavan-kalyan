@@ -124,7 +124,7 @@ Server-sent events can replace polling later without changing the UI.
 | Method | Path              | Body                  | Response          |
 | ------ | ----------------- | --------------------- | ----------------- |
 | GET    | `/auth/session`   | —                     | `Session` or 401  |
-| POST   | `/auth/login`     | `{ email, password }` | `Session`, sets cookies; 401 for bad credentials (same response whether or not the email exists); 429 when rate limited |
+| POST   | `/auth/login`     | `{ email, password }` | `email` is the e-mail address or, without `@`, the username (case and extra spaces ignored). `Session`, sets cookies; 401 for bad credentials (same response whether or not the e-mail address or username exists); 429 when rate limited |
 | POST   | `/auth/logout`    | —                     | 204, clears cookies |
 
 ```ts

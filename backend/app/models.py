@@ -31,6 +31,8 @@ class User(Base):
     id: Mapped[str] = mapped_column(ID, primary_key=True, default=new_id)
     organization_id: Mapped[str] = mapped_column(ID, ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
     email: Mapped[str] = mapped_column(String(320), unique=True)
+    username: Mapped[str | None] = mapped_column(String(40), unique=True, nullable=True)
+    """Optional second sign-in name, stored normalized (see validation.normalize_username)."""
     display_name: Mapped[str] = mapped_column(String(100))
     role: Mapped[str] = mapped_column(String(20))
     password_hash: Mapped[str] = mapped_column(String(255))

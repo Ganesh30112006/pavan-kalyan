@@ -68,7 +68,8 @@ permissions (`backend/app/domain.py`): owner = all; admin = all but `organizatio
 create/update apps, deploy, cancel, rollback, read audit; viewer = read only. `providers:manage` is
 needed to add/validate/delete connections and alert channels. Frontend checks are display only.
 
-**Auth.** HttpOnly session cookie + double-submit CSRF (`cb_csrf` cookie → `X-CSRF-Token`). API tokens
+**Auth.** Sign in with the e-mail or an optional username (`users.username`, normalized, set with
+`app.cli set-username`). HttpOnly session cookie + double-submit CSRF (`cb_csrf` cookie → `X-CSRF-Token`). API tokens
 (`cbt_…`) for the CLI/CI. Login is rate limited with identical responses for unknown user / bad password.
 
 **Connections** (`routers/providers.py`, `api/serializers.py`). Statuses: `pending_validation →

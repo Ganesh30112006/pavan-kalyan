@@ -15,7 +15,7 @@ describe('login', () => {
     const api = signedOutApi();
     const { user } = renderApp('/login', api);
     await user.click(await screen.findByRole('button', { name: 'Sign in' }));
-    expect(screen.getAllByText('Email is required.').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Email or username is required.').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Password is required.').length).toBeGreaterThan(0);
     expect(api.auth.login).not.toHaveBeenCalled();
     expect(screen.getByLabelText(/Email/)).toHaveAttribute('aria-invalid', 'true');
@@ -28,7 +28,7 @@ describe('login', () => {
     await user.type(await screen.findByLabelText(/Email/), 'ada@example.com');
     await user.type(screen.getByLabelText(/Password/), 'wrong');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
-    expect(await screen.findByText('The email or password is incorrect.')).toBeInTheDocument();
+    expect(await screen.findByText('The email address, username or password is incorrect.')).toBeInTheDocument();
     expect(screen.getByLabelText(/Email/)).toHaveValue('ada@example.com');
     expect(screen.getByLabelText(/Password/)).toHaveValue('');
   });
@@ -109,5 +109,26 @@ describe('logout', () => {
     await user.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(api.auth.logout).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('You have signed out.')).toBeInTheDocument();
+  });
+});
+
+describe('sign-in name', () => {
+  it('accepts a username as well as an email address, and sends it as typed', async () => {
+    const api = signedOutApi();
+    const { user } = renderApp('/login', api);
+    await user.type(await screen.findByLabelText(/Email or username/), '  Pavan Kalyan ');
+    await user.type(screen.getByLabelText(/Password/), 'Pavan Kalyan@2006');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(api.auth.login).toHaveBeenCalledTimes(1));
+    expect(api.auth.login.mock.calls[0]?.[0]).toEqual({ email: 'Pavan Kalyan', password: 'Pavan Kalyan@2006' });
+  });
+
+  it('checks the format of an email address but not of a username', async () => {
+    const { signInName } = await import('../src/utils/validation');
+    expect(signInName('ganesh')).toBeNull();
+    expect(signInName('Pavan Kalyan')).toBeNull();
+    expect(signInName('ada@example.com')).toBeNull();
+    expect(signInName('ada@')).toBe('Enter a valid email address.');
+    expect(signInName('ab')).toBe('Enter your email address or username.');
   });
 });
