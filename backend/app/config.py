@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     trust_proxy_headers: bool = False
     """Use X-Forwarded-For for the client address (only behind a trusted reverse proxy)."""
     maintenance_mode: bool = False
+    static_dir: str | None = None
+    """Directory of the built web app (frontend/dist) to serve from this process, for single-container deployments."""
     enable_api_docs: bool | None = None
 
     # Background worker

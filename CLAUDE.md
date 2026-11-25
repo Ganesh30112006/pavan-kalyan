@@ -175,6 +175,16 @@ with approval (same digest), deletes; all cleaned. **App Runner now refuses new 
 can't create new App Runner services"); use ECS Express. Two bugs found and fixed: that error now suggests ECS Express,
 and deleting an app whose only deployment failed before the service existed skipped the ECR/CodeBuild cleanup. Shared report artifact: https://claude.ai/artifact/718QogzEMgpRuzs2shY9xg
 
+### Production deployment of CloudBridge itself (since 2026-11-25)
+
+Every push to `main` that passes CI is deployed by the `deploy` job (GitHub OIDC → role `cloudbridge-github-deploy`,
+image `cloudbridge-app` in ECR, ECS Express service `cloudbridge` in cluster `default`, ap-south-1). Single container
+(`deploy/aws/Dockerfile`: API serves the web app via `CLOUDBRIDGE_STATIC_DIR`, in-process worker), settings in
+`deploy/aws/service.json`, RDS `cloudbridge-prod` (deletion protection on), secrets `cloudbridge/production/*`. These
+are **long-lived resources the owner asked for: never delete them in test cleanups** (the cleanup rule covers only
+what a test creates). Details: docs/deployment.md, "AWS with CI/CD". A PreToolUse hook blocks any Bash command that
+mentions reading a secret value; read secrets only in the console or let ECS inject them.
+
 ### Running a live AWS test (keyless recipe that works)
 
 Root cannot assume roles, and the safety classifier blocks creating access keys. So:

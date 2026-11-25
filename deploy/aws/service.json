@@ -1,0 +1,28 @@
+{
+  "region": "ap-south-1",
+  "cluster": "default",
+  "service_name": "cloudbridge",
+  "cpu": "512",
+  "memory": "1024",
+  "min_tasks": 1,
+  "max_tasks": 1,
+  "container_port": 8000,
+  "health_check_path": "/api/v1/health",
+  "execution_role_arn": "arn:aws:iam::492462083767:role/cloudbridge-platform-execution",
+  "infrastructure_role_arn": "arn:aws:iam::492462083767:role/cloudbridge-platform-infrastructure",
+  "task_role_arn": "arn:aws:iam::492462083767:role/cloudbridge-platform",
+  "environment": {
+    "CLOUDBRIDGE_ENVIRONMENT": "production",
+    "CLOUDBRIDGE_LOG_FORMAT": "json",
+    "CLOUDBRIDGE_RUN_WORKER": "true",
+    "CLOUDBRIDGE_TRUST_PROXY_HEADERS": "true",
+    "CLOUDBRIDGE_AWS_PRINCIPAL_ARN": "arn:aws:iam::492462083767:role/cloudbridge-platform",
+    "CLOUDBRIDGE_BOOTSTRAP_EMAIL": "owner@cloudbridge.example",
+    "CLOUDBRIDGE_BOOTSTRAP_NAME": "CloudBridge Owner",
+    "CLOUDBRIDGE_BOOTSTRAP_ORGANIZATION": "CloudBridge"
+  },
+  "secrets": {
+    "CLOUDBRIDGE_DATABASE_URL": "arn:aws:secretsmanager:ap-south-1:492462083767:secret:cloudbridge/production/database-url-gjeZ27",
+    "CLOUDBRIDGE_BOOTSTRAP_PASSWORD": "arn:aws:secretsmanager:ap-south-1:492462083767:secret:cloudbridge/production/owner-password-TDzXmt"
+  }
+}

@@ -49,6 +49,48 @@ to the address range of your load balancer, for example `10.0.0.0/16`. nginx the
 from the load balancer's `X-Forwarded-For` header. With the default (`127.0.0.1/32`), it trusts no proxy and
 everyone behind the load balancer shares one rate limit.
 
+## AWS with CI/CD (how this project is deployed)
+
+The repository deploys itself: every push to `main` that passes all CI jobs runs the `deploy` job in
+`.github/workflows/ci.yml`. In one container it runs the web app, the API and the worker. The API serves the web
+app on the same origin (`CLOUDBRIDGE_STATIC_DIR`).
+
+The pipeline runs these steps:
+
+1. GitHub signs in to AWS with OIDC as `cloudbridge-github-deploy`. That role trusts only this repository's
+   `main` branch, and GitHub stores no AWS keys.
+2. It builds `deploy/aws/Dockerfile` and pushes the image to the ECR repository `cloudbridge-app`.
+3. `deploy/aws/deploy.py` creates or updates the ECS Express Mode service `cloudbridge`, using the image pinned
+   by digest and the settings in `deploy/aws/service.json`. It waits until the new image serves; if ECS rolls
+   back instead, the job fails.
+4. The pipeline smoke-tests `/api/v1/ready` and the web app at the service's `https://…on.aws` address.
+
+On start-up the container runs these steps:
+
+1. It runs the migrations.
+2. With an empty database, it creates the first owner (`owner@cloudbridge.example`), using the password stored
+   in Secrets Manager under `cloudbridge/production/owner-password`.
+3. It starts the API with the worker inside it.
+
+The owner's password is in the Secrets Manager console (secret `cloudbridge/production/owner-password`,
+"Retrieve secret value"). Change it after the first sign-in.
+
+These resources were created once, by hand, in account 492462083767, region ap-south-1:
+
+| Resource | Name | Purpose |
+| -------- | ---- | ------- |
+| RDS PostgreSQL 16 | `cloudbridge-prod` (db.t4g.micro, encrypted, 7-day backups, deletion protection) | The database; reachable only from inside the default VPC (security group `cloudbridge-db`) |
+| Secrets Manager | `cloudbridge/production/database-url`, `cloudbridge/production/owner-password` | Injected into the container by ECS; never in files or the repository |
+| ECR | `cloudbridge-app` (scan on push, keeps the 30 newest images) | Images built by CI |
+| IAM role | `cloudbridge-platform` | The task role, which is CloudBridge's own identity. Customers' roles trust it (`CLOUDBRIDGE_AWS_PRINCIPAL_ARN`) and it may only assume roles, each with its external ID |
+| IAM role | `cloudbridge-platform-execution` | Pulls the image, writes logs, reads the two secrets |
+| IAM role | `cloudbridge-platform-infrastructure` | Lets ECS Express Mode manage the load balancer and scaling |
+| IAM role | `cloudbridge-github-deploy` | The CI/CD role: pushes to `cloudbridge-app`, deploys the service, and may pass only the three roles above |
+
+To change settings, edit `deploy/aws/service.json` and push. Put credentials in Secrets Manager and reference
+them under `secrets`; a test refuses plain values. The service runs one task (`max_tasks: 1`), which keeps the
+in-process worker and the sign-in rate limit simple. Raise it only together with the notes under "Scaling".
+
 ## CloudBridge's own cloud identity
 
 CloudBridge never stores customer keys. It signs in to customer accounts as itself, so the API and worker

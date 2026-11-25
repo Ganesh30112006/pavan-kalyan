@@ -4,9 +4,12 @@
     python -m app.cli create-user --email ada@example.com --name "Ada" --role owner --new-organization "Acme"
     python -m app.cli create-user --email bob@example.com --name "Bob" --role developer --organization-id <id>
     python -m app.cli set-password --email ada@example.com
+    python -m app.cli ensure-owner --email ada@example.com --name "Ada" --organization "Acme"
 
 The password is read from the terminal (or CLOUDBRIDGE_BOOTSTRAP_PASSWORD for automation); it is
-never accepted as a command-line argument, so it does not end up in shell history.
+never accepted as a command-line argument, so it does not end up in shell history. ensure-owner is for
+first start-up in a container: it creates the first owner only while the database has no users, and reads
+the password from CLOUDBRIDGE_BOOTSTRAP_PASSWORD only (inject it from a secret store).
 """
 
 from __future__ import annotations
@@ -90,6 +93,25 @@ def create_user(settings: Settings, args: argparse.Namespace) -> None:
     database.dispose()
 
 
+def ensure_owner(settings: Settings, args: argparse.Namespace) -> None:
+    """Creates the first owner and organization when the database has no users; otherwise does nothing."""
+    database = Database(settings.database_url)
+    with database.session() as db:
+        existing = db.scalar(select(func.count()).select_from(User)) or 0
+    database.dispose()
+    if existing:
+        print("Users already exist; no owner created.")
+        return
+    if not os.environ.get("CLOUDBRIDGE_BOOTSTRAP_PASSWORD"):
+        sys.exit("CLOUDBRIDGE_BOOTSTRAP_PASSWORD is required to create the first owner.")
+    create_user(
+        settings,
+        argparse.Namespace(
+            email=args.email, name=args.name, role="owner", new_organization=args.organization, organization_id=None
+        ),
+    )
+
+
 def set_password(settings: Settings, args: argparse.Namespace) -> None:
     database = Database(settings.database_url)
     with database.session() as db:
@@ -117,6 +139,10 @@ def main(argv: list[str] | None = None) -> None:
     where.add_argument("--organization-id", metavar="ID")
     reset = commands.add_parser("set-password", help="Set a user's password")
     reset.add_argument("--email", required=True)
+    first = commands.add_parser("ensure-owner", help="Create the first owner if the database has no users")
+    first.add_argument("--email", required=True)
+    first.add_argument("--name", required=True)
+    first.add_argument("--organization", required=True)
     args = parser.parse_args(argv)
 
     settings = Settings()
@@ -127,6 +153,8 @@ def main(argv: list[str] | None = None) -> None:
         create_user(settings, args)
     elif args.command == "set-password":
         set_password(settings, args)
+    elif args.command == "ensure-owner":
+        ensure_owner(settings, args)
 
 
 if __name__ == "__main__":

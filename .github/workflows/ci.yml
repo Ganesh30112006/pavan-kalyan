@@ -30,6 +30,10 @@ jobs:
         run: |
           ruff check ../cli/cloudbridge.py --target-version py310
           mypy --strict ../cli/cloudbridge.py
+      - name: AWS deploy script
+        run: |
+          ruff check ../deploy/aws/deploy.py --line-length 120
+          mypy --strict --ignore-missing-imports ../deploy/aws/deploy.py
       - name: Guided setup script (stdlib, Python 3.9+)
         run: |
           ruff check ../frontend/public/cloudbridge-connect.py --target-version py39 --line-length 120
@@ -126,3 +130,55 @@ jobs:
       - name: Stop
         if: always()
         run: docker compose -f deploy/compose.yaml down -v
+
+  # Continuous deployment: every push to main that passes all of the checks above is deployed to AWS
+  # (ECS Express Mode, ap-south-1). GitHub signs in with OIDC; no AWS keys are stored in GitHub.
+  # Infrastructure and roles: docs/deployment.md, "AWS (CI/CD)".
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [backend, backend-postgres, frontend, containers]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      AWS_REGION: ap-south-1
+      IMAGE_REPOSITORY: 492462083767.dkr.ecr.ap-south-1.amazonaws.com/cloudbridge-app
+    steps:
+      - uses: actions/checkout@v5
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::492462083767:role/cloudbridge-github-deploy
+          aws-region: ap-south-1
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push the image
+        id: image
+        run: |
+          set -eu
+          docker build -f deploy/aws/Dockerfile -t "$IMAGE_REPOSITORY:$GITHUB_SHA" .
+          docker push "$IMAGE_REPOSITORY:$GITHUB_SHA"
+          echo "pinned=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - run: pip install boto3
+      - name: Deploy
+        id: deploy
+        env:
+          IMAGE: ${{ steps.image.outputs.pinned }}
+        run: python deploy/aws/deploy.py --config deploy/aws/service.json --image "$IMAGE"
+      - name: Smoke test
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -fsS "$URL/api/v1/ready" | grep -q '"status":"ready"'; then
+              curl -fsS -o /dev/null "$URL/" && echo "CloudBridge is live at $URL" && exit 0
+            fi
+            sleep 10
+          done
+          echo "CloudBridge did not become ready at $URL" >&2
+          exit 1

@@ -8,6 +8,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -35,6 +36,7 @@ from app.routers import settings as settings_router
 from app.schemas import ErrorEnvelope
 from app.security import CSRF_COOKIE, CSRF_HEADER, new_token, tokens_match
 from app.services.ratelimit import SlidingWindowLimiter
+from app.static_site import SiteRoute
 from app.worker import Worker
 from app.worker.notify import Notifier
 
@@ -419,6 +421,10 @@ def create_app(
         tokens.router,
     ):
         app.include_router(router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+
+    if settings.static_dir:
+        # Registered after the API routes; it never matches API paths.
+        app.router.routes.append(SiteRoute(Path(settings.static_dir), "/api"))
 
     app.add_middleware(
         BodySizeLimit,

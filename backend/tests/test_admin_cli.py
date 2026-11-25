@@ -81,3 +81,23 @@ def test_standalone_worker_stops_on_a_signal(cli_env: Env, monkeypatch: pytest.M
     monkeypatch.setattr(worker_main, "Worker", FakeWorker)
     worker_main.main()
     assert events == ["start", "stop"]
+
+
+def test_ensure_owner_creates_the_first_owner_only_once(
+    cli_env: Env, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = ["ensure-owner", "--email", "First@Example.com", "--name", "First Owner", "--organization", "Prod"]
+    monkeypatch.delenv("CLOUDBRIDGE_BOOTSTRAP_PASSWORD", raising=False)
+    with pytest.raises(SystemExit, match="CLOUDBRIDGE_BOOTSTRAP_PASSWORD is required"):
+        cli.main(args)
+    monkeypatch.setenv("CLOUDBRIDGE_BOOTSTRAP_PASSWORD", "first owner password 42")
+    cli.main(args)
+    assert "Created owner first@example.com in organization Prod" in capsys.readouterr().out
+    client = cli_env.client()
+    client.login("first@example.com", "first owner password 42")
+    assert client.get("/auth/session").json()["user"]["role"] == "owner"
+    # Every later start-up leaves the users alone, even with another password in the environment.
+    monkeypatch.setenv("CLOUDBRIDGE_BOOTSTRAP_PASSWORD", "a different password 42")
+    cli.main([*args[:2], "someone@example.com", *args[3:]])
+    assert "Users already exist; no owner created." in capsys.readouterr().out
+    client.login("first@example.com", "first owner password 42")

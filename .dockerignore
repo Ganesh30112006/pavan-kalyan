@@ -1,0 +1,21 @@
+# Context for deploy/aws/Dockerfile (repository root). The other images use backend/ and frontend/ as context.
+**/node_modules
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.db
+**/*.db-*
+**/.env
+**/.env.*
+!frontend/.env.example
+frontend/dist
+backend/tests
+backend/.coverage
+.git
+.github
+.playwright-mcp
+.claude
+docs
+examples
