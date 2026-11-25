@@ -19,7 +19,8 @@
     "CLOUDBRIDGE_AWS_PRINCIPAL_ARN": "arn:aws:iam::492462083767:role/cloudbridge-platform",
     "CLOUDBRIDGE_BOOTSTRAP_EMAIL": "owner@cloudbridge.example",
     "CLOUDBRIDGE_BOOTSTRAP_NAME": "CloudBridge Owner",
-    "CLOUDBRIDGE_BOOTSTRAP_ORGANIZATION": "CloudBridge"
+    "CLOUDBRIDGE_BOOTSTRAP_ORGANIZATION": "CloudBridge",
+    "CLOUDBRIDGE_PUBLIC_URL": "https://cl-becd21485cb8479ca542816a73b83139.ecs.ap-south-1.on.aws"
   },
   "secrets": {
     "CLOUDBRIDGE_DATABASE_URL": "arn:aws:secretsmanager:ap-south-1:492462083767:secret:cloudbridge/production/database-url-gjeZ27",

@@ -177,7 +177,8 @@ and deleting an app whose only deployment failed before the service existed skip
 
 ### Production deployment of CloudBridge itself (since 2026-11-25)
 
-Every push to `main` that passes CI is deployed by the `deploy` job (GitHub OIDC → role `cloudbridge-github-deploy`,
+Live at https://cl-becd21485cb8479ca542816a73b83139.ecs.ap-south-1.on.aws (first owner `owner@cloudbridge.example`, password in Secrets Manager
+`cloudbridge/production/owner-password`). Every push to `main` that passes CI is deployed by the `deploy` job (GitHub OIDC → role `cloudbridge-github-deploy`,
 image `cloudbridge-app` in ECR, ECS Express service `cloudbridge` in cluster `default`, ap-south-1). Single container
 (`deploy/aws/Dockerfile`: API serves the web app via `CLOUDBRIDGE_STATIC_DIR`, in-process worker), settings in
 `deploy/aws/service.json`, RDS `cloudbridge-prod` (deletion protection on), secrets `cloudbridge/production/*`. These
